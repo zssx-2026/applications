@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "installDir": "packages",
+  "binDir": ".bin",
+  "downloadTempDir": ".download_temp",
+  "registryFile": "registry.json",
+  "github": {
+    "token": "",
+    "apiBase": "https://api.github.com",
+    "timeout": 180000
+  },
+  "update": {
+    "autoCheck": true,
+    "intervalHours": 6
+  },
+  "install": {
+    "createBinShims": true,
+    "stripComponents": 1
+  }
+}

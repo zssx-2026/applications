@@ -1,0 +1,8 @@
+node_modules/
+packages/
+.bin/
+registry.json
+.download_temp/*
+!.download_temp/.gitkeep
+*.log
+.DS_Store

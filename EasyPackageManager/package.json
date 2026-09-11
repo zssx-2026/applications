@@ -1,0 +1,20 @@
+{
+  "name": "easy-package-manager",
+  "version": "1.0.0",
+  "description": "EasyPackageManager - 从 GitHub 直接下载、安装并管理软件包的轻量级包管理器",
+  "main": "src/index.js",
+  "bin": {
+    "epm": "bin/epm.js",
+    "easypackage": "bin/epm.js"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "scripts": {
+    "start": "node bin/epm.js",
+    "update": "node update.js",
+    "list": "node bin/epm.js list"
+  },
+  "license": "MIT",
+  "dependencies": {}
+}
