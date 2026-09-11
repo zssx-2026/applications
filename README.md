@@ -4,7 +4,7 @@
 
 Each application is usually stored in its own directory, containing source code, dependency files, build scripts, and documentation. Stable releases are published on the release page. To publish a new version, create a version tag such as `v1.0.0` and upload the corresponding installer or archive.
 
-Issues and suggestions are welcome. Contributions via pull requests are also appreciated. The license and terms of use for each application are specified in its directory or [release](https://github.com/zssx-2026/applications/releases) notes.
+Issues and suggestions are welcome. Contributions via pull requests are also appreciated. The license and terms of use for each application are specified in its directory or **[release](https://github.com/zssx-2026/applications/releases)** notes.
 
 > Download the latest version from the release page.
 
@@ -16,4 +16,4 @@ Issues and suggestions are welcome. Contributions via pull requests are also app
 
 欢迎通过 Issue 反馈问题、提出建议，也欢迎通过 Pull Request 贡献代码。各应用的具体许可证和使用条款，以对应目录或 Release 说明为准。
 
-> 下载地址：请访问本仓库的 [发布](https://github.com/zssx-2026/applications/releases) 页面获取最新版本。
+> 下载地址：请访问本仓库的 **[发布](https://github.com/zssx-2026/applications/releases)** 页面获取最新版本。
