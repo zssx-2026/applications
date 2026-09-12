@@ -51,7 +51,7 @@ macOS / Linux 一般不需要这步。
 #### 步骤
 
 ```cmd
-cd /d D:\丁陈子豪\EasyPackageManager
+cd /d EasyPackageManager
 npm link
 ```
 
@@ -75,7 +75,7 @@ epm help
 npm config get prefix
 ```
 
-假设输出 `C:\Users\你的用户名\AppData\Roaming\npm`，把这个路径加入 PATH：
+假设输出 `%AppData%\Roaming\npm`，把这个路径加入 PATH：
 
 1. `Win + R` → `sysdm.cpl`
 2. 高级 → 环境变量
