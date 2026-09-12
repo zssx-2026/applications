@@ -1,74 +1,401 @@
 'use strict';
 
-const installer = require('./installer');
+const path = require('path');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
+
+const config = require('./config');
+const platform = require('./platform');
 const registry = require('./registry');
-const { log, color } = require('./utils');
+const sources = require('./sources');
+const installer = require('./installer');
+const downloader = require('./downloader');
+const pak = require('./pak');
+const proc = require('./process');
+const i18n = require('./i18n');
+const { log: log, color: color, rmrf: rmrf, clearScreen: clearScreen, formatBytes: formatBytes } = require('./utils');
+
+function buildHelpText() {
+  const t = i18n.t;
+  return [
+    t('helpTitle'),
+    t('helpPlatform') + ': ' + platform.platform + '/' + platform.arch,
+    '',
+    t('helpUsage') + ':',
+    '  epm run                              ' + t('helpCmdRun'),
+    '  epm cli                              ' + t('helpCmdCli'),
+    '  epm list                             ' + t('helpCmdList'),
+    '  epm list install                     ' + t('helpCmdListInstall'),
+    '  epm search <keyword>                 ' + t('helpCmdSearch'),
+    '  epm get                              ' + t('helpCmdGet'),
+    '  epm add <name> <url>                 ' + t('helpCmdAdd'),
+    '  epm install <name>                   ' + t('helpCmdInstall'),
+    '      name@file                        ' + t('helpCmdInstallFile'),
+    '      -f <file>                        ' + t('helpCmdInstallF'),
+    '      -p <path>                        ' + t('helpCmdInstallP'),
+    '      -q                               ' + t('helpCmdInstallQ'),
+    '  epm download <name>[@file]           ' + t('helpCmdDownload'),
+    '      -n <filename>                    ' + t('helpCmdDownloadN'),
+    '  epm uninstall <name>                 ' + t('helpCmdUninstall'),
+    '  epm redadd <name> <path>             ' + t('helpCmdRedadd'),
+    '  epm redel <name>                     ' + t('helpCmdRedel'),
+    '  epm pak list                         ' + t('helpCmdPakList'),
+    '  epm pak add <name> <url>             ' + t('helpCmdPakAdd'),
+    '  epm pak del <name>                   ' + t('helpCmdPakDel'),
+    '  epm temp clear                       ' + t('helpCmdTempClear'),
+    '  epm set <name> [value]               ' + t('helpCmdSet'),
+    '  epm set list                         ' + t('helpCmdSetList'),
+    '  epm lang                             ' + t('helpCmdLang'),
+    '  epm lang list                        ' + t('helpCmdLangList'),
+    '  epm lang get                         ' + t('helpCmdLangGet'),
+    '  epm lang set <name>                  ' + t('helpCmdLangSet'),
+    '  epm clear                            ' + t('helpCmdClear'),
+    '  epm update                           ' + t('helpCmdUpdate'),
+    '  epm exit                             ' + t('helpCmdExit'),
+    '  epm help                             ' + t('helpCmdHelp'),
+    '',
+    t('helpShellHeader') + ':',
+    '  {}                                   ' + t('helpMultiLine'),
+    '  exit / quit                          ' + t('helpExitHint')
+  ].join('\n');
+}
+
+function unknownCommand(cmd) {
+  console.log(
+    i18n.t('unknownCommand') +
+    color.red('"' + cmd + '"') +
+    color.yellow(i18n.t('inputEpmHelp'))
+  );
+}
 
 function parseArgs(argv) {
-  const args = { _: [] };
+  const args = { _: [], flags: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) {
-      const key = a.slice(2);
+    if (a === '-q' || a === '--force') args.flags[a === '-q' ? 'q' : 'force'] = true;
+    else if (a === '-p' || a === '-n' || a === '-f') {
+      const key = a.slice(1);
       const next = argv[i + 1];
-      if (next && !next.startsWith('-')) { args[key] = next; i++; }
-      else args[key] = true;
-    } else if (a.startsWith('-')) {
-      args[a.slice(1)] = true;
-    } else {
-      args._.push(a);
-    }
+      if (next !== undefined && !(next.length > 1 && next[0] === '-')) { args.flags[key] = next; i++; }
+      else args.flags[key] = true;
+    } else if (a.length > 2 && a.slice(0, 2) === '--') {
+      const key = a.slice(2);
+      const eq = key.indexOf('=');
+      if (eq !== -1) args.flags[key.slice(0, eq)] = key.slice(eq + 1);
+      else {
+        const next = argv[i + 1];
+        if (next !== undefined && next[0] !== '-') { args.flags[key] = next; i++; }
+        else args.flags[key] = true;
+      }
+    } else args._.push(a);
   }
   return args;
 }
 
-async function main(argv) {
+const KNOWN_COMMANDS = [
+  'run', 'cli', 'list', 'get', 'search', 'add', 'install', 'i', 'download',
+  'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp', 'set',
+  'lang', 'pak', 'clear', 'cls', 'update', 'exit', 'quit', 'help'
+];
+
+async function dispatch(argv) {
   const args = parseArgs(argv);
-  const cmd = args._[0] || 'help';
+
+  if (!args._.length) { console.log(buildHelpText()); return; }
+
+  const cmd = args._[0];
+  const sub = args._[1];
+
+  if (KNOWN_COMMANDS.indexOf(cmd) === -1) { unknownCommand(cmd); return; }
 
   switch (cmd) {
+    case 'run':
+    case 'cli':
+      return require('./shell').run();
+
+    case 'list':
+      if (sub === 'install' || sub === 'installed') return listInstalled();
+      return listAvailable();
+
+    case 'search':
+      return searchPackages(args._.slice(1).join(' '));
+
+    case 'get':
+      return getFromGithub();
+
+    case 'add':
+      return installer.addPackage(args._[1], args._[2], args.flags);
+
     case 'install':
-    case 'i': {
-      const spec = args._[1];
-      if (!spec) throw new Error('用法: epm install <owner/repo[@ref]>');
-      await installer.install(spec, args);
-      break;
-    }
+    case 'i':
+      return installer.install(args._[1], args.flags);
+
+    case 'download':
+      return downloader.download(args._[1], args.flags);
+
     case 'uninstall':
     case 'remove':
-    case 'rm': {
-      const name = args._[1];
-      if (!name) throw new Error('用法: epm uninstall <name>');
-      installer.uninstall(name);
-      break;
-    }
-    case 'list':
-    case 'ls': {
-      const list = registry.list();
-      if (!list.length) { log.info('没有已安装的包'); break; }
-      for (const pkg of list) {
-        console.log(`${color.cyan(pkg.name)}  ${pkg.version || ''}  ${color.gray(pkg.source || '')}`);
-      }
-      break;
-    }
-    case 'update': {
-      require('child_process').execFileSync(process.execPath, ['update.js'], { stdio: 'inherit' });
-      break;
-    }
-    case 'help':
-    default:
-      console.log(`
-EasyPackageManager (epm)
+    case 'rm':
+      return installer.uninstall(args._[1]);
 
-用法:
-  epm install <owner/repo[@ref]> [--name <name>] [--dir <dir>]
-  epm uninstall <name>
-  epm list
-  epm update
-  epm help
-`);
-      break;
+    case 'redadd':
+      return installer.registerDisk(args._[1], args._[2]);
+
+    case 'redel':
+      return installer.unregister(args._[1]);
+
+    case 'pak':
+      return pakCommand(args._.slice(1), args.flags);
+
+    case 'temp':
+      if (sub === 'clear') return clearTemp();
+      log.error(i18n.t('tempUsage'));
+      return;
+
+    case 'set':
+      return settings(args._.slice(1));
+
+    case 'lang':
+      return lang(args._.slice(1));
+
+    case 'clear':
+    case 'cls':
+      clearScreen();
+      return;
+
+    case 'update':
+      return runUpdate();
+
+    case 'exit':
+    case 'quit':
+      return proc.exitAll(0);
+
+    case 'help':
+      console.log(buildHelpText());
+      return;
   }
 }
 
-module.exports = { main };
+async function pakCommand(rest, flags) {
+  if (!rest.length || rest[0] === 'list') return pakList();
+
+  const sub = rest[0];
+
+  if (sub === 'add') {
+    const name = rest[1];
+    const url = rest[2];
+    if (!name || !url) { log.error(i18n.t('pakAddUsage')); return; }
+
+    const r = pak.add(name, url, flags);
+
+    if (!r.ok) {
+      const key = r.error;
+      const msg = i18n.t(key) !== key ? i18n.t(key) : key;
+      log.error(msg);
+      if (key === 'nameExists') log.warn(i18n.t('pakForceHint'));
+      return;
+    }
+
+    log.success(i18n.t('pakAdded') + ': ' + r.pkg.name);
+    log.info(i18n.t('pakFile') + ': ' + r.pkg.file);
+    log.info(i18n.t('pakUrl') + ': ' + r.pkg.url);
+    return;
+  }
+
+  if (sub === 'del' || sub === 'delete' || sub === 'remove' || sub === 'rm') {
+    const name = rest[1];
+    if (!name) { log.error(i18n.t('pakDelUsage')); return; }
+
+    const r = pak.remove(name);
+
+    if (!r.ok) { log.error(i18n.t('pakNotFound') + ': ' + name); return; }
+
+    log.success(i18n.t('pakRemoved') + ': ' + name);
+    return;
+  }
+
+  log.error(i18n.t('pakListUsage'));
+}
+
+function pakList() {
+  const all = pak.list();
+
+  console.log(i18n.t('pakHeader') + ':  (' + all.length + ')');
+  if (!all.length) { log.info(i18n.t('pakEmpty')); return; }
+
+  console.log('');
+  for (const p of all) {
+    console.log('  ' + color.cyan(p.name));
+    if (p.file) console.log('    ' + color.gray(i18n.t('pakFile') + ': ' + p.file));
+    console.log('    ' + color.gray(i18n.t('pakUrl') + ': ' + p.url));
+    if (p.addedAt) console.log('    ' + color.dim(i18n.t('pakAddedAt') + ': ' + p.addedAt));
+    console.log('');
+  }
+}
+
+function listAvailable() {
+  const pkgs = sources.listAvailable();
+  const st = sources.stats();
+
+  if (!pkgs.length) {
+    log.info(i18n.t('noAvailablePkgs'));
+    log.info(i18n.t('runGetHint'));
+    return;
+  }
+
+  console.log(i18n.t('availablePkgs') + ':  ' +
+    st.releaseCount + ' releases, ' +
+    st.pakCount + ' local, ' +
+    st.fileCount + ' files (' + formatBytes(st.totalSize) + ')');
+  if (st.updatedAt) console.log(color.gray('  updated at ' + st.updatedAt));
+  console.log('');
+
+  for (const p of pkgs) {
+    const isPak = p.type === 'pak';
+    const flag = p.prerelease ? color.yellow(' ' + i18n.t('prereleaseTag')) : '';
+    const local = isPak ? color.magenta(' ' + i18n.t('localTag')) : '';
+    const fileCount = p.files.length;
+
+    console.log('  ' + color.cyan(p.name) + ' ' +
+      color.gray('(' + fileCount + ' files)') + flag + local);
+
+    if (p.publishedAt) console.log('    ' + color.gray(i18n.t('publishedAt') + ' ' + p.publishedAt));
+    if (!p.files.length) { console.log('    ' + color.dim(i18n.t('noFiles'))); continue; }
+
+    const picked = platform.pickAsset(p.files, p.name);
+    for (const f of p.files) {
+      const mark = (picked && f.name === picked.name) ? color.green(' ' + i18n.t('currentPlatformMark')) : '';
+      const size = f.size ? color.gray(' (' + formatBytes(f.size) + ')') : '';
+      console.log('      - ' + f.name + size + mark);
+    }
+    console.log('');
+  }
+}
+
+function searchPackages(keyword) {
+  if (!keyword) { log.error('用法: epm search <keyword>'); return; }
+  const hits = sources.search(keyword);
+  if (!hits.length) { log.info(i18n.t('noAvailablePkgs')); return; }
+
+  console.log('搜索 "' + keyword + '":  ' + hits.length + ' releases');
+  for (const p of hits) {
+    const local = p.type === 'pak' ? color.magenta(' ' + i18n.t('localTag')) : '';
+    console.log('');
+    console.log('  ' + color.cyan(p.name) + local);
+    for (const f of p.files) {
+      const lower = f.name.toLowerCase();
+      const hl = lower.indexOf(String(keyword).toLowerCase()) !== -1
+        ? color.yellow(f.name) : f.name;
+      const size = f.size ? color.gray(' (' + formatBytes(f.size) + ')') : '';
+      console.log('      - ' + hl + size);
+    }
+  }
+}
+
+function listInstalled() {
+  const pkgs = registry.list();
+  if (!pkgs.length) { log.info(i18n.t('noInstalledPkgs')); return; }
+  console.log(i18n.t('installedPkgs') + ':');
+  for (const p of pkgs) {
+    const tag = color.gray('[' + p.type + ']');
+    const ver = p.version ? color.gray(' ' + p.version) : '';
+    const file = p.file ? color.dim(' (' + p.file + ')') : '';
+    console.log('  ' + color.cyan(p.name) + ' ' + tag + ver + file);
+    console.log('    ' + p.path);
+  }
+}
+
+function clearTemp() {
+  const tempdir = config.get('tempdir');
+  if (!fs.existsSync(tempdir)) { log.info(i18n.t('tempDirNotExist') + ': ' + tempdir); return; }
+  const entries = fs.readdirSync(tempdir).filter(function (n) {
+    return n !== '.gitkeep' && n.indexOf('.epm.pids') !== 0;
+  });
+  for (const e of entries) rmrf(path.join(tempdir, e));
+  log.success(i18n.t('tempCleared') + ' ' + tempdir + '  (' + entries.length + ' ' + i18n.t('itemsDeleted') + ')');
+}
+
+async function settings(rest) {
+  if (!rest.length || rest[0] === 'list') {
+    const all = config.list();
+    console.log(i18n.t('settingsHeader') + ':');
+    for (const k of Object.keys(all)) console.log('  ' + color.cyan(k) + ' = ' + all[k]);
+    return;
+  }
+  const key = rest[0];
+  if (rest.length === 1) { console.log(key + ' = ' + config.get(key)); return; }
+  const value = rest.slice(1).join(' ');
+  config.set(key, value);
+  if (key === 'lang') i18n.reload();
+  log.success(i18n.t('settingUpdated') + ' ' + key + ' = ' + value);
+}
+
+async function lang(rest) {
+  if (!rest.length || rest[0] === 'list') return langList();
+  const sub = rest[0];
+
+  if (sub === 'get') {
+    log.step(i18n.t('langGetting'));
+    const { fetchLangs } = require('./langfetch');
+    await fetchLangs({});
+    return;
+  }
+
+  if (sub === 'set') {
+    const name = rest[1];
+    if (!name) { console.log(i18n.t('langUsage')); return; }
+    const file = path.join(i18n.LANG_DIR, name + '.lang');
+    if (!fs.existsSync(file)) { log.error(i18n.t('langNotFound') + ': ' + name); return; }
+    config.set('lang', name);
+    i18n.reload();
+    log.success(i18n.t('langSetOK') + ': ' + name);
+    return;
+  }
+
+  log.error(i18n.t('langUsage'));
+}
+
+function langList() {
+  const cur = i18n.current();
+  const all = i18n.listLangs();
+  console.log(i18n.t('langCurrent') + ': ' + color.cyan(cur));
+  if (!all.length) { log.warn(i18n.t('noAvailablePkgs')); return; }
+  console.log(i18n.t('langAvailable') + ':');
+  for (const name of all) {
+    const meta = i18n.info(name);
+    const display = meta && meta.displayName ? meta.displayName : name;
+    const mark = (name === cur) ? color.green(' *') : '';
+    console.log('  ' + color.cyan(name) + '  ' + color.gray(display) + mark);
+  }
+}
+
+async function getFromGithub() {
+  const root = path.resolve(__dirname, '..');
+  const updateScript = path.join(root, 'update.js');
+  log.step(i18n.t('fetchingPkgs'));
+  try {
+    execFileSync(process.execPath, [updateScript, '--force'], { stdio: 'inherit', cwd: root });
+    const pkgs = sources.listAvailable();
+    const st = sources.stats();
+    if (!pkgs.length) { log.warn(i18n.t('noReleasesGot')); return; }
+    log.success(i18n.t('fetchPkgsOK') + ' ' + st.releaseCount + ' releases, ' + st.fileCount + ' files');
+  } catch (err) {
+    log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
+    const cached = sources.listAvailable();
+    if (cached.length) log.warn(i18n.t('fetchPkgsCached') + ' (' + cached.length + ')');
+  }
+}
+
+async function runUpdate() {
+  const root = path.resolve(__dirname, '..');
+  const updateScript = path.join(root, 'update.js');
+  execFileSync(process.execPath, [updateScript, '--force'], { stdio: 'inherit', cwd: root });
+}
+
+module.exports = {
+  dispatch: dispatch, parseArgs: parseArgs,
+  buildHelpText: buildHelpText, unknownCommand: unknownCommand,
+  listAvailable: listAvailable, listInstalled: listInstalled,
+  searchPackages: searchPackages, pakCommand: pakCommand,
+  clearTemp: clearTemp, settings: settings, lang: lang
+};

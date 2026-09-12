@@ -4,137 +4,225 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 
 const ROOT = __dirname;
 const URL_FILE = path.join(ROOT, 'url.json');
 const SETTINGS_FILE = path.join(ROOT, 'settings.json');
 
-function readJson(file, fallback = null) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch { return fallback; }
-}
+const MAX_PAGES = 100;
+const PER_PAGE = 100;
 
-function writeJson(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
-}
+function readJson(f, d) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) { return d; } }
+function writeJson(f, d) { fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n', 'utf8'); }
 
 function getToken() {
-  const settings = readJson(SETTINGS_FILE, {});
-  return process.env.GITHUB_TOKEN
-    || process.env.GH_TOKEN
-    || (settings.github && settings.github.token)
-    || '';
+  const s = readJson(SETTINGS_FILE, {});
+  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || (s.github && s.github.token) || '';
 }
 
-function request(url, redirect = 0) {
-  return new Promise((resolve, reject) => {
-    if (redirect > 6) return reject(new Error('重定向次数过多'));
-    const u = new URL(url);
+function getNet() {
+  const s = readJson(SETTINGS_FILE, {});
+  const n = s.network || {};
+  return {
+    retries: n.retries == null ? 4 : n.retries,
+    retryDelayMs: n.retryDelayMs == null ? 800 : n.retryDelayMs,
+    timeoutMs: n.timeoutMs == null ? 30000 : n.timeoutMs
+  };
+}
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+function requestOnce(url, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    let u;
+    try { u = new URL(url); } catch (e) { return reject(new Error('Invalid URL: ' + url)); }
+
     const headers = {
       'user-agent': 'EasyPackageManager/1.0.0',
       'accept': 'application/vnd.github+json',
-      'x-github-api-version': '2022-11-28'
+      'x-github-api-version': '2022-11-28',
+      'accept-encoding': 'identity',
+      'connection': 'close'
     };
     const token = getToken();
-    if (token) headers.authorization = `Bearer ${token}`;
+    if (token) headers.authorization = 'Bearer ' + token;
 
-    const req = https.request({
-      hostname: u.hostname,
+    const lib = u.protocol === 'http:' ? http : https;
+    const req = lib.request({
+      protocol: u.protocol, hostname: u.hostname,
+      port: u.port || undefined,
       path: u.pathname + u.search,
-      method: 'GET',
-      headers
-    }, (res) => {
-      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
-        res.resume();
-        return resolve(request(new URL(res.headers.location, url).toString(), redirect + 1));
-      }
+      method: 'GET', headers: headers
+    }, function (res) {
       const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        body: Buffer.concat(chunks)
-      }));
+      res.on('data', function (c) { chunks.push(c); });
+      res.on('end', function () {
+        resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) });
+      });
+      res.on('error', reject);
     });
     req.on('error', reject);
-    req.setTimeout(20000, () => req.destroy(new Error('请求超时')));
+    req.setTimeout(timeoutMs, function () { req.destroy(new Error('Timeout (' + timeoutMs + 'ms)')); });
     req.end();
   });
 }
 
-async function fetchReleases(owner, repo) {
-  const url = `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`;
-  const res = await request(url);
-  if (res.status === 404) throw new Error('仓库不存在');
-  if (res.status === 403) throw new Error('API 限流，请设置 GITHUB_TOKEN');
-  if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
-  return JSON.parse(res.body.toString('utf8'));
+async function requestWithRetry(url, redirect) {
+  if (redirect === undefined) redirect = 0;
+  const net = getNet();
+  let lastErr = null;
+
+  for (let attempt = 0; attempt <= net.retries; attempt++) {
+    try {
+      const res = await requestOnce(url, net.timeoutMs);
+      if ([301,302,303,307,308].indexOf(res.status) >= 0 && res.headers.location) {
+        if (redirect > 6) throw new Error('Too many redirects');
+        return await requestWithRetry(new URL(res.headers.location, url).toString(), redirect + 1);
+      }
+      if (res.status >= 500) {
+        lastErr = new Error('HTTP ' + res.status);
+        if (attempt < net.retries) {
+          const wait = net.retryDelayMs * Math.pow(2, attempt);
+          console.log('[epm] HTTP ' + res.status + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + net.retries + ')');
+          await sleep(wait);
+          continue;
+        }
+        throw lastErr;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < net.retries) {
+        const wait = net.retryDelayMs * Math.pow(2, attempt);
+        console.log('[epm] ' + err.message + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + net.retries + ')');
+        await sleep(wait);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error('Request failed');
 }
 
-function normalize(release) {
-  const tag = release.tag_name || release.name || 'unknown';
+function normalize(r) {
+  const tag = r.tag_name || r.name || 'unknown';
   return {
-    id: release.id,
-    tag,
-    name: release.name || tag,
-    prerelease: Boolean(release.prerelease),
-    draft: Boolean(release.draft),
-    publishedAt: release.published_at,
-    htmlUrl: release.html_url,
-    tarballUrl: release.tarball_url,
-    zipballUrl: release.zipball_url,
-    assets: (release.assets || []).map(a => ({
-      name: a.name,
-      size: a.size,
-      url: a.browser_download_url
-    }))
+    id: r.id,
+    tag: tag,
+    name: r.name || tag,
+    prerelease: Boolean(r.prerelease),
+    draft: Boolean(r.draft),
+    publishedAt: r.published_at,
+    createdAt: r.created_at,
+    htmlUrl: r.html_url,
+    assets: (r.assets || []).map(function (a) {
+      return {
+        id: a.id,
+        name: a.name,
+        size: a.size,
+        contentType: a.content_type,
+        downloadCount: a.download_count,
+        createdAt: a.created_at,
+        updatedAt: a.updated_at,
+        url: a.browser_download_url
+      };
+    })
   };
 }
 
-async function main() {
-  const force = process.argv.includes('--force');
-  const check = process.argv.includes('--check');
-  const urlData = readJson(URL_FILE, {});
-  const owner = urlData.source?.owner || 'zssx-2026';
-  const repo = urlData.source?.repo || 'applications';
+function parseNextLink(headers) {
+  const link = headers && (headers.link || headers.Link);
+  if (!link) return null;
+  const parts = String(link).split(',');
+  for (const p of parts) {
+    const m = p.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (m) return m[1];
+  }
+  return null;
+}
 
-  const settings = readJson(SETTINGS_FILE, {});
-  const interval = (settings.update?.intervalHours || 6) * 3600 * 1000;
-  const last = urlData.updatedAt ? new Date(urlData.updatedAt).getTime() : 0;
+async function fetchAllReleases(owner, repo) {
+  const all = [];
+  const seen = new Set();
+  let url = 'https://api.github.com/repos/' + owner + '/' + repo +
+            '/releases?per_page=' + PER_PAGE + '&page=1';
+  let page = 1;
 
-  if (!force && Date.now() - last < interval) {
-    console.log('[epm] 使用缓存 url.json，跳过更新');
-    return;
+  while (url && page <= MAX_PAGES) {
+    console.log('[epm] fetching page ' + page + ' ...');
+    const res = await requestWithRetry(url);
+
+    if (res.status === 404) throw new Error('repo not found: ' + owner + '/' + repo);
+    if (res.status === 403 || res.status === 429) throw new Error('GitHub API rate limited');
+    if (res.status >= 400) throw new Error('HTTP ' + res.status);
+
+    let batch;
+    try { batch = JSON.parse(res.body.toString('utf8')); }
+    catch (e) { throw new Error('parse error: ' + e.message); }
+
+    if (!Array.isArray(batch) || !batch.length) break;
+
+    for (const r of batch) {
+      const key = String(r.id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      all.push(normalize(r));
+    }
+
+    const next = parseNextLink(res.headers);
+    if (!next) break;
+
+    url = next;
+    page++;
   }
 
-  console.log(`[epm] 正在获取 ${owner}/${repo} releases ...`);
-  const releases = await fetchReleases(owner, repo);
-  const normalized = releases.filter(r => !r.draft).map(normalize);
-  const stable = normalized.filter(r => !r.prerelease);
-  const latest = stable[0] || normalized[0] || null;
+  return all;
+}
+
+async function main() {
+  const offline = process.argv.indexOf('--offline') !== -1;
+  const urlData = readJson(URL_FILE, {});
+  const owner = (urlData.source && urlData.source.owner) || 'zssx-2026';
+  const repo = (urlData.source && urlData.source.repo) || 'applications';
+
+  if (offline) { console.log('[epm] offline mode'); return; }
+
+  console.log('[epm] fetching ALL releases of ' + owner + '/' + repo + ' ...');
+
+  let all;
+  try { all = await fetchAllReleases(owner, repo); }
+  catch (err) {
+    console.error('[epm] update failed: ' + err.message);
+    if (urlData.updatedAt) console.error('[epm] keeping url.json (last update: ' + urlData.updatedAt + ')');
+    process.exit(2);
+  }
+
+  const visible = all.filter(function (r) { return !r.draft; });
+  const stable = visible.filter(function (r) { return !r.prerelease; });
+  const latest = stable[0] || visible[0] || null;
 
   const next = {
     version: 1,
     updatedAt: new Date().toISOString(),
     source: {
-      owner,
-      repo,
-      api: `https://api.github.com/repos/${owner}/${repo}/releases`,
-      releases: `https://github.com/${owner}/${repo}/releases`,
-      latest: `https://github.com/${owner}/${repo}/releases/latest`
+      owner: owner, repo: repo,
+      api: 'https://api.github.com/repos/' + owner + '/' + repo + '/releases',
+      releases: 'https://github.com/' + owner + '/' + repo + '/releases'
     },
-    latest,
-    releases: normalized.slice(0, 30)
+    latest: latest,
+    releases: visible
   };
 
-  if (!check) {
-    writeJson(URL_FILE, next);
-    console.log('[epm] url.json 已更新');
-  } else {
-    console.log(JSON.stringify({ latest: latest?.tag }, null, 2));
-  }
+  writeJson(URL_FILE, next);
+
+  const fileCount = visible.reduce(function (n, r) { return n + (r.assets ? r.assets.length : 0); }, 0);
+  console.log('[epm] url.json updated');
+  console.log('[epm] ' + visible.length + ' releases, ' + fileCount + ' files total');
+  if (latest) console.log('[epm] latest version: ' + latest.tag);
 }
 
-main().catch(err => {
-  console.error('[epm] 更新失败:', err.message);
+main().catch(function (err) {
+  console.error('[epm] uncaught: ' + err.message);
   process.exit(1);
 });

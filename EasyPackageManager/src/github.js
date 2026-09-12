@@ -1,31 +1,26 @@
 'use strict';
 
-const { httpGet } = require('./utils');
+const net = require('./net');
 const config = require('./config');
 
-function headers() {
-  const h = {
-    'user-agent': 'EasyPackageManager/1.0.0',
-    'accept': 'application/vnd.github+json'
-  };
-  const token = process.env.GITHUB_TOKEN || config.get('github.token');
-  if (token) h.authorization = `Bearer ${token}`;
-  return h;
-}
-
 async function api(pathOrUrl) {
-  const url = /^https?:\/\//.test(pathOrUrl)
-    ? pathOrUrl
-    : `https://api.github.com${pathOrUrl}`;
-  const res = await httpGet(url, 0, headers());
-  if (res.status === 404) return null;
-  if (res.status >= 400) throw new Error(`GitHub API HTTP ${res.status}`);
+  const base = config.get('github.apiBase') || 'https://api.github.com';
+  const url = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : base + pathOrUrl;
+  const res = await net.httpGetWithRetry(url, {
+    headers: { 'accept': 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' }
+  });
+  if (res.statusCode === 404) return null;
+  if (res.statusCode === 401) throw new Error('GitHub auth failed');
+  if (res.statusCode === 403 || res.statusCode === 429) throw new Error('GitHub API rate limited');
+  if (res.statusCode >= 400) throw new Error('GitHub API HTTP ' + res.statusCode);
   return JSON.parse(res.body.toString('utf8'));
 }
 
-const getRepo = (owner, repo) => api(`/repos/${owner}/${repo}`);
-const getRelease = (owner, repo, tag) =>
-  tag ? api(`/repos/${owner}/${repo}/releases/tags/${tag}`)
-      : api(`/repos/${owner}/${repo}/releases/latest`);
-
-module.exports = { headers, api, getRepo, getRelease };
+module.exports = {
+  api: api,
+  getRepo: function (o, r) { return api('/repos/' + o + '/' + r); },
+  getRelease: function (o, r, tag) {
+    return tag ? api('/repos/' + o + '/' + r + '/releases/tags/' + encodeURIComponent(tag))
+               : api('/repos/' + o + '/' + r + '/releases/latest');
+  }
+};

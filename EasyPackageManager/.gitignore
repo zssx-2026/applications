@@ -1,8 +1,8 @@
 node_modules/
-packages/
-.bin/
 registry.json
 .download_temp/*
 !.download_temp/.gitkeep
+packages/
 *.log
 .DS_Store
+Thumbs.db

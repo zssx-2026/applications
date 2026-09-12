@@ -2,37 +2,40 @@
 
 const fs = require('fs');
 const path = require('path');
-const { ROOT, readJson, writeJson, ensureDir } = require('./utils');
 const config = require('./config');
 
-const REGISTRY_FILE = path.join(ROOT, config.get('registryFile', 'registry.json'));
+function file() { return config.get('registryfile'); }
 
 function load() {
-  return readJson(REGISTRY_FILE, { version: 1, packages: {} });
+  try {
+    const d = JSON.parse(fs.readFileSync(file(), 'utf8'));
+    if (!d.packages) d.packages = {};
+    return d;
+  } catch (_) { return { version: 1, packages: {} }; }
 }
 
-function save(data) {
-  writeJson(REGISTRY_FILE, data);
+function save(d) { fs.mkdirSync(path.dirname(file()), { recursive: true }); fs.writeFileSync(file(), JSON.stringify(d, null, 2) + '\n', 'utf8'); }
+
+function get(n) { return load().packages[n] || null; }
+function has(n) { return Boolean(get(n)); }
+
+function add(n, info) {
+  const d = load();
+  d.packages[n] = Object.assign({}, d.packages[n], info, { name: n });
+  save(d);
+  return d.packages[n];
 }
 
-function get(name) {
-  return load().packages[name] || null;
-}
-
-function set(name, info) {
-  const data = load();
-  data.packages[name] = Object.assign({}, data.packages[name], info);
-  save(data);
-}
-
-function remove(name) {
-  const data = load();
-  delete data.packages[name];
-  save(data);
+function remove(n) {
+  const d = load();
+  const existed = Boolean(d.packages[n]);
+  delete d.packages[n];
+  save(d);
+  return existed;
 }
 
 function list() {
-  return Object.values(load().packages);
+  return Object.values(load().packages).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
 }
 
-module.exports = { load, save, get, set, remove, list, REGISTRY_FILE };
+module.exports = { load: load, save: save, get: get, has: has, add: add, remove: remove, list: list, file: file };

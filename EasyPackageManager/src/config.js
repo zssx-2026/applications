@@ -2,21 +2,85 @@
 
 const fs = require('fs');
 const path = require('path');
+const platform = require('./platform');
 
 const ROOT = path.resolve(__dirname, '..');
 const SETTINGS_FILE = path.join(ROOT, 'settings.json');
 
-function load() {
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-  } catch {
-    return {};
+const DEFAULTS = {
+  tempdir: './.download_temp',
+  installdir: '',
+  registryfile: './registry.json',
+  lang: '',
+  'network.retries': 4,
+  'network.retryDelayMs': 800,
+  'network.timeoutMs': 30000,
+  'github.token': '',
+  'github.apiBase': 'https://api.github.com'
+};
+
+function loadRaw() { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch (_) { return {}; } }
+function saveRaw(d) { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(d, null, 2) + '\n', 'utf8'); }
+function resolvePath(p) { if (!p) return p; return path.isAbsolute(p) ? p : path.resolve(ROOT, p); }
+
+function get(key) {
+  const raw = loadRaw();
+  if (key === 'tempdir') return resolvePath(raw.tempdir || DEFAULTS.tempdir);
+  if (key === 'installdir') return raw.installdir ? resolvePath(raw.installdir) : platform.defaultInstallDir();
+  if (key === 'registryfile') return resolvePath(raw.registryfile || DEFAULTS.registryfile);
+  if (key === 'lang') return raw.lang || '';
+  if (key === 'github.token') return (raw.github && raw.github.token) || '';
+  if (key === 'github.apiBase') return (raw.github && raw.github.apiBase) || DEFAULTS['github.apiBase'];
+  if (key.indexOf('network.') === 0) {
+    const sub = key.slice(8);
+    return (raw.network && raw.network[sub] != null) ? raw.network[sub] : DEFAULTS[key];
   }
+  return raw[key];
 }
 
-function get(key, fallback = null) {
-  const cfg = load();
-  return key.split('.').reduce((o, k) => (o ? o[k] : undefined), cfg) ?? fallback;
+function set(key, value) {
+  const raw = loadRaw();
+  if (key === 'tempdir' || key === 'installdir' || key === 'registryfile' || key === 'lang') {
+    raw[key] = value;
+  } else if (key.indexOf('github.') === 0) {
+    if (!raw.github) raw.github = {};
+    raw.github[key.slice(7)] = value;
+  } else if (key.indexOf('network.') === 0) {
+    if (!raw.network) raw.network = {};
+    let v = value;
+    if (key === 'network.retries' || key === 'network.retryDelayMs' || key === 'network.timeoutMs') v = Number(value);
+    raw.network[key.slice(8)] = v;
+  } else {
+    raw[key] = value;
+  }
+  saveRaw(raw);
 }
 
-module.exports = { load, get, ROOT, SETTINGS_FILE };
+function list() {
+  const raw = loadRaw();
+  let i18n = null;
+  try { i18n = require('./i18n'); } catch (_) {}
+
+  let langDisplay;
+  if (raw.lang) {
+    langDisplay = raw.lang;
+  } else if (i18n) {
+    langDisplay = i18n.current() + ' (' + i18n.t('langFollowSystem') + ')';
+  } else {
+    langDisplay = '';
+  }
+
+  return {
+    tempdir: get('tempdir'),
+    installdir: get('installdir'),
+    registryfile: get('registryfile'),
+    lang: langDisplay,
+    'network.retries': get('network.retries'),
+    'network.retryDelayMs': get('network.retryDelayMs'),
+    'network.timeoutMs': get('network.timeoutMs'),
+    'github.token': (raw.github && raw.github.token) || '',
+    'github.apiBase': (raw.github && raw.github.apiBase) || DEFAULTS['github.apiBase']
+  };
+}
+
+module.exports = { get: get, set: set, list: list, ROOT: ROOT, SETTINGS_FILE: SETTINGS_FILE };

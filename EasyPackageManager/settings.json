@@ -1,20 +1,15 @@
 {
-  "version": 1,
-  "installDir": "packages",
-  "binDir": ".bin",
-  "downloadTempDir": ".download_temp",
-  "registryFile": "registry.json",
+  "tempdir": "./.download_temp",
+  "installdir": "",
+  "registryfile": "./registry.json",
+  "lang": "",
+  "network": {
+    "retries": 4,
+    "retryDelayMs": 800,
+    "timeoutMs": 30000
+  },
   "github": {
     "token": "",
-    "apiBase": "https://api.github.com",
-    "timeout": 180000
-  },
-  "update": {
-    "autoCheck": true,
-    "intervalHours": 6
-  },
-  "install": {
-    "createBinShims": true,
-    "stripComponents": 1
+    "apiBase": "https://api.github.com"
   }
 }

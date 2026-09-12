@@ -5,8 +5,7 @@
     "owner": "zssx-2026",
     "repo": "applications",
     "api": "https://api.github.com/repos/zssx-2026/applications/releases",
-    "releases": "https://github.com/zssx-2026/applications/releases",
-    "latest": "https://github.com/zssx-2026/applications/releases/latest"
+    "releases": "https://github.com/zssx-2026/applications/releases"
   },
   "latest": null,
   "releases": []
