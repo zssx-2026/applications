@@ -11,6 +11,7 @@ const downloader = require('./downloader');
 const pak = require('./pak');
 const proc = require('./process');
 const i18n = require('./i18n');
+const classify = require('./classify');
 const { log: log, color: color, rmrf: rmrf, clearScreen: clearScreen, formatBytes: formatBytes } = require('./utils');
 
 function buildHelpText() {
@@ -184,6 +185,18 @@ function pakList() {
   }
 }
 
+function typeLabel(type) {
+  const i18n = require('./i18n');
+  const lang = i18n.current();
+  const table = lang === 'en' ? classify.TYPE_LABEL_EN : classify.TYPE_LABEL;
+  const txt = table[type] || type;
+  if (type === 'installer') return color.yellow('[' + txt + ']');
+  if (type === 'portable') return color.green('[' + txt + ']');
+  if (type === 'archive') return color.cyan('[' + txt + ']');
+  if (type === 'exe') return color.gray('[' + txt + ']');
+  return color.dim('[' + txt + ']');
+}
+
 function listAvailable() {
   const pkgs = sources.listAvailable();
   const st = sources.stats();
@@ -202,7 +215,9 @@ function listAvailable() {
     for (const f of p.files) {
       const mark = (picked && f.name === picked.name) ? color.green(' ' + i18n.t('currentPlatformMark')) : '';
       const size = f.size ? color.gray(' (' + formatBytes(f.size) + ')') : '';
-      console.log('      - ' + f.name + size + mark);
+      const ftype = f.type || classify.classify(f.name);
+      const label = typeLabel(ftype);
+      console.log('      - ' + f.name + size + '  ' + label + mark);
     }
     console.log('');
   }
@@ -221,7 +236,8 @@ function searchPackages(keyword) {
       const lower = f.name.toLowerCase();
       const hl = lower.indexOf(String(keyword).toLowerCase()) !== -1 ? color.yellow(f.name) : f.name;
       const size = f.size ? color.gray(' (' + formatBytes(f.size) + ')') : '';
-      console.log('      - ' + hl + size);
+      const ftype = f.type || classify.classify(f.name);
+      console.log('      - ' + hl + size + '  ' + typeLabel(ftype));
     }
   }
 }

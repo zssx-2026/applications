@@ -5,6 +5,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const config = require('./config');
+const classify = require('./classify');
 
 const URL_FILE = path.join(config.ROOT, 'url.json');
 const SETTINGS_FILE = path.join(config.ROOT, 'settings.json');
@@ -108,6 +109,7 @@ function normalize(r) {
         contentType: a.content_type,
         downloadCount: a.download_count,
         createdAt: a.created_at, updatedAt: a.updated_at,
+        type: classify.classify(a.name),
         url: a.browser_download_url
       };
     })

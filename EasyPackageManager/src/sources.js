@@ -4,6 +4,7 @@ const path = require('path');
 const platform = require('./platform');
 const config = require('./config');
 const pak = require('./pak');
+const classify = require('./classify');
 const { readJson } = require('./utils');
 
 const URL_FILE = path.join(config.ROOT, 'url.json');
@@ -23,7 +24,8 @@ function listAvailable() {
       files: (r.assets || []).map(function (a) {
         return {
           name: a.name, url: a.url, size: a.size,
-          contentType: a.contentType, downloadCount: a.downloadCount, updatedAt: a.updatedAt
+          contentType: a.contentType, downloadCount: a.downloadCount, updatedAt: a.updatedAt,
+          type: a.type || classify.classify(a.name)
         };
       })
     };
