@@ -4,37 +4,10 @@ const readline = require('readline');
 const { dispatch } = require('./cli');
 const proc = require('./process');
 const i18n = require('./i18n');
-const tui = require('./tui');
-const { color: color } = require('./utils');
+const { color: color, log: log } = require('./utils');
 
 function run() {
   return new Promise(function (resolve) {
-    // ── 挂接 console，把输出重定向到 TUI 缓冲区 ──
-    const origLog = console.log;
-    const origErr = console.error;
-    const origWarn = console.warn;
-
-    let capturing = true;
-
-    function capture(args) {
-      if (!capturing) return;
-      const line = Array.from(args).map(function (a) {
-        return typeof a === 'string' ? a : String(a);
-      }).join(' ');
-      tui.push(line);
-    }
-
-    console.log = function () { capture(arguments); };
-    console.error = function () { capture(arguments); };
-    console.warn = function () { capture(arguments); };
-
-    function restoreConsole() {
-      console.log = origLog;
-      console.error = origErr;
-      console.warn = origWarn;
-    }
-
-    // ── 创建 readline ──
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -44,32 +17,16 @@ function run() {
 
     global.__epm_rl = rl;
 
-    tui.clear();
-
-    // 首次绘制
-    tui.draw();
+    console.log('EasyPackageManager');
+    console.log(i18n.t('helpUsage') + ': help / exit');
+    console.log(i18n.t('helpMultiLine'));
+    console.log('');
     rl.prompt();
 
-    // ── 处理输入行 ──
     rl.on('line', async function (line) {
       const raw = line.trim();
-
-      if (!raw) {
-        // 空输入：清屏 + 重绘
-        tui.draw();
-        rl.prompt();
-        return;
-      }
-
-      if (raw === 'exit' || raw === 'quit') {
-        restoreConsole();
-        rl.close();
-        proc.exitAll(0);
-        return;
-      }
-
-      // 记录命令到日志
-      tui.push(color.cyan('epm> ') + raw);
+      if (!raw) { rl.prompt(); return; }
+      if (raw === 'exit' || raw === 'quit') { rl.close(); proc.exitAll(0); return; }
 
       let commands;
       if (raw[0] === '{' && raw[raw.length - 1] === '}') {
@@ -84,25 +41,16 @@ function run() {
           if (argv[0] === 'epm') argv.shift();
           await dispatch(argv);
         } catch (err) {
-          tui.push(color.red('x') + ' ' + ((err && err.message) || String(err)));
+          log.error((err && err.message) || String(err));
         }
       }
-
-      // 命令完成：清屏重绘 TUI
-      tui.draw();
       rl.prompt();
     });
 
     rl.on('close', function () {
       global.__epm_rl = null;
-      restoreConsole();
       proc.unregister();
       resolve();
-    });
-
-    // 窗口尺寸变化时重绘
-    process.stdout.on('resize', function () {
-      if (global.__epm_rl) tui.draw();
     });
   });
 }

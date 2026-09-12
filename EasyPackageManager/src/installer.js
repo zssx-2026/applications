@@ -9,79 +9,65 @@ const sources = require('./sources');
 const net = require('./net');
 const extractor = require('./extractor');
 const runner = require('./runner');
+const versionLib = require('./version');
 const i18n = require('./i18n');
-const { ensureDir: ensureDir, rmrf: rmrf, copyDir: copyDir, log: log, formatBytes: formatBytes } = require('./utils');
+const { ensureDir: ensureDir, rmrf: rmrf, log: log, formatBytes: formatBytes } = require('./utils');
 
-async function install(nameOrPath, flags) {
+async function install(name, version, flags) {
   flags = flags || {};
+  if (!name) throw new Error(i18n.t('installUsage'));
 
-  if (flags.p) {
-    const localPath = typeof flags.p === 'string' ? flags.p : nameOrPath;
-    if (!localPath) throw new Error(i18n.t('installUsage'));
-    return installLocal(localPath, flags);
-  }
-  if (!nameOrPath) throw new Error(i18n.t('installUsage'));
-
-  let name = nameOrPath;
-  let wantFile = flags.f || null;
-  const at = nameOrPath.indexOf('@');
-  if (at !== -1) {
-    name = nameOrPath.slice(0, at);
-    wantFile = nameOrPath.slice(at + 1) || wantFile;
-  }
-  return installFromEpm(name, wantFile, flags);
-}
-
-async function installFromEpm(name, wantFile, flags) {
-  let pkg = sources.find(name);
-
-  if (!pkg && !wantFile) {
-    const hit = sources.findByFile(name);
-    if (hit) { pkg = hit.pkg; wantFile = hit.file.name; }
-  }
-
+  const pkg = sources.find(name);
   if (!pkg) throw new Error(i18n.t('pkgNotFound') + ': ' + name);
-  if (!pkg.files || !pkg.files.length) throw new Error(name + ' ' + i18n.t('noFilesInPkg'));
 
-  let asset;
-  if (wantFile) {
-    asset = pkg.files.find(function (f) { return f.name === wantFile; });
-    if (!asset) {
-      throw new Error(i18n.t('noFileInPkg') + ' ' + name + ': ' + wantFile + '\n  ' +
-        i18n.t('availableFiles') + ': ' + pkg.files.map(function (f) { return f.name; }).join(', '));
+  let target;
+  if (version) {
+    target = pkg.versions.find(function (v) { return v.version === version; });
+    if (!target) {
+      throw new Error(i18n.t('versionNotFound') + ': ' + name + '@' + version +
+        '\n  ' + i18n.t('versionAvailable') + ': ' +
+        pkg.versions.map(function (v) { return v.version; }).join(', '));
     }
   } else {
-    asset = platform.pickAsset(pkg.files, name);
-    if (!asset) throw new Error(i18n.t('noSuitableFile') + ' (' + platform.platform + '/' + platform.arch + ')');
+    target = pkg.latest;
+    if (!target) throw new Error(name + ' ' + i18n.t('noFilesInPkg'));
   }
 
-  const isInstaller = runner.isInstallerType(asset.name);
-  const downloadDir = flags.d
-    ? path.resolve(flags.d)
-    : (isInstaller ? config.get('tempdir') : config.get('installdir'));
-  ensureDir(downloadDir);
-  const dest = path.join(downloadDir, asset.name);
+  if (!target.url) throw new Error(target.fileName + ' ' + i18n.t('pkgNoDownloadUrl'));
+
+  const isInstaller = target.assetType === 'installer' ||
+                      runner.isInstallerType(target.fileName);
 
   if (!flags.q) {
-    log.step(i18n.t('installingPkg') + ' ' + name + (pkg.version ? ' (' + pkg.version + ')' : ''));
-    log.info(i18n.t('installingFile') + ': ' + asset.name + (asset.size ? ' (' + formatBytes(asset.size) + ')' : ''));
+    log.step(i18n.t('installingPkg') + ' ' + pkg.name + ' v' + target.version +
+             '  ' + target.fileName);
+    if (target.company && target.company !== 'null') {
+      log.info('company: ' + target.company);
+    }
     log.info(i18n.t('installingPlatform') + ': ' + platform.platform + '/' + platform.arch);
   }
 
+  const tmpdir = config.get('tempdir');
+  const installdir = config.get('installdir');
+  ensureDir(tmpdir);
+  ensureDir(installdir);
+
+  const downloadDir = isInstaller ? tmpdir : path.join(installdir, pkg.name);
+  ensureDir(downloadDir);
+  const dest = path.join(downloadDir, target.fileName);
+
   if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
-    if (!flags.q) log.info(i18n.t('installingDownload') + ' ' + asset.url);
-    await net.downloadWithRetry(asset.url, dest);
-  } else if (!flags.q) {
-    log.info(i18n.t('fileExistsSkipDownload') + ': ' + dest);
+    if (!flags.q) log.info(i18n.t('installingDownload') + ' ' + target.url);
+    await net.downloadWithRetry(target.url, dest);
   }
 
   if (isInstaller) {
     if (flags['no-run']) {
       log.success(i18n.t('downloadDone') + ': ' + dest);
     } else {
-      if (!flags.q) log.info(i18n.t('runningInstaller') + ' ' + asset.name);
+      if (!flags.q) log.info(i18n.t('runningInstaller') + ' ' + target.fileName);
       try {
-        const code = await runner.runInstaller(dest, asset.name, flags);
+        const code = await runner.runInstaller(dest, target.fileName, flags);
         if (code === 0) log.success(i18n.t('installerDone'));
         else log.warn(i18n.t('installerExitCode') + ': ' + code);
       } catch (err) {
@@ -94,113 +80,84 @@ async function installFromEpm(name, wantFile, flags) {
         log.info(i18n.t('installerRemoved'));
       }
     }
-
-    registry.add(name, {
-      name: name, version: pkg.version || null, source: pkg.url || null,
-      file: asset.name, path: dest, type: 'installer',
-      installedAt: new Date().toISOString()
-    });
-    return;
+  } else {
+    log.info(i18n.t('installingExtract') + ' ' + downloadDir);
+    if (runner.isArchiveType(target.fileName)) {
+      try {
+        const buf = fs.readFileSync(dest);
+        const lower = target.fileName.toLowerCase();
+        if (lower.endsWith('.zip')) extractor.extractZip(buf, downloadDir, { strip: 0 });
+        else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) extractor.extractTarGz(buf, downloadDir, { strip: 1 });
+        else if (lower.endsWith('.tar')) extractor.extractTar(buf, downloadDir, { strip: 1 });
+      } catch (err) {
+        log.error('extract failed: ' + err.message);
+      }
+      try { fs.unlinkSync(dest); } catch (_) {}
+    }
+    log.success(i18n.t('installingDone') + ' ' + pkg.name + ' -> ' + downloadDir);
   }
 
-  const installdir = config.get('installdir');
-  const finalDir = path.join(installdir, name);
-  rmrf(finalDir);
-  ensureDir(finalDir);
-
-  if (!flags.q) log.info(i18n.t('installingExtract') + ' ' + finalDir);
-  installFileInto(dest, asset.name, finalDir, flags);
-
-  registry.add(name, {
-    name: name, version: pkg.version || null, source: pkg.url || null,
-    file: asset.name, path: finalDir, type: 'installed',
+  registry.add(pkg.name, {
+    name: pkg.name,
+    version: target.version,
+    company: target.company,
+    type: target.type,
+    fileName: target.fileName,
+    source: target.htmlUrl || null,
+    path: isInstaller ? dest : downloadDir,
     installedAt: new Date().toISOString()
   });
 
-  if (!flags.q) log.success(i18n.t('installingDone') + ' ' + name + ' -> ' + finalDir);
+  versionLib.setCurrent(pkg.name, target.version);
 }
 
-function installFileInto(srcFile, fileName, destDir, flags) {
-  ensureDir(destDir);
-  const lower = (fileName || '').toLowerCase();
-  if (runner.isArchiveType(lower)) {
-    const written = tryExtract(srcFile, fileName, destDir);
-    if (written > 0) return;
+async function uninstall(name) {
+  if (!name) throw new Error(i18n.t('uninstallUsage'));
+  const info = registry.get(name);
+  if (!info) throw new Error(i18n.t('notInstalled') + ': ' + name);
+  if (info.path && fs.existsSync(info.path)) {
+    try {
+      const stat = fs.statSync(info.path);
+      if (stat.isDirectory()) rmrf(info.path);
+      else fs.unlinkSync(info.path);
+      log.info(i18n.t('deletedPath') + ' ' + info.path);
+    } catch (_) {}
   }
-  copySingleFile(srcFile, fileName, destDir);
+  registry.remove(name);
+  versionLib.removeCurrent(name);
+  log.success(i18n.t('uninstalled') + ' ' + name);
 }
 
-function tryExtract(srcFile, fileName, destDir) {
-  const lower = (fileName || '').toLowerCase();
-  const buf = fs.readFileSync(srcFile);
-  try {
-    if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return extractor.extractTarGz(buf, destDir, { strip: 1 });
-    if (lower.endsWith('.tar')) return extractor.extractTar(buf, destDir, { strip: 1 });
-    if (lower.endsWith('.zip')) return extractor.extractZip(buf, destDir, { strip: 0 });
-    if (lower.endsWith('.gz')) {
-      const out = path.join(destDir, path.basename(fileName, '.gz'));
-      fs.writeFileSync(out, require('zlib').gunzipSync(buf));
-      return 1;
-    }
-  } catch (_) { return -1; }
-  return 0;
-}
-
-function copySingleFile(srcFile, fileName, destDir) {
-  const target = path.join(destDir, fileName);
-  ensureDir(path.dirname(target));
-  fs.copyFileSync(srcFile, target);
-  if (platform.isExecutable(fileName) || /\.(sh|bash|zsh|py|rb|pl)$/i.test(fileName)) platform.chmodExec(target);
-}
-
-async function installLocal(localPath, flags) {
+async function updatePackage(name, flags) {
   flags = flags || {};
-  const fullPath = path.resolve(localPath);
-  if (!fs.existsSync(fullPath)) throw new Error(i18n.t('pathNotExist') + ': ' + fullPath);
+  const installed = registry.list();
+  if (!installed.length) {
+    log.info(i18n.t('noInstalledPkgs'));
+    return 0;
+  }
 
-  const stat = fs.statSync(fullPath);
-  const baseName = path.basename(fullPath);
-  const name = flags.name || baseName.replace(/\.(tar\.gz|tgz|tar|zip|exe|msi|dmg|pkg|deb|rpm|appimage)$/i, '');
+  const targets = name
+    ? installed.filter(function (p) { return p.name === name; })
+    : installed;
 
-  if (stat.isFile() && runner.isInstallerType(baseName)) {
-    if (!flags.q) log.step(i18n.t('runningInstaller') + ' ' + baseName);
-    if (!flags['no-run']) {
-      try {
-        const code = await runner.runInstaller(fullPath, baseName, flags);
-        if (code === 0) log.success(i18n.t('installerDone'));
-        else log.warn(i18n.t('installerExitCode') + ': ' + code);
-      } catch (err) { log.error(i18n.t('installerFailed') + ': ' + err.message); }
-    } else {
-      log.info(i18n.t('fileNotRun') + ': ' + fullPath);
+  if (name && !targets.length) throw new Error(i18n.t('notInstalled') + ': ' + name);
+
+  let count = 0;
+  for (const inst of targets) {
+    const pkg = sources.find(inst.name);
+    if (!pkg || !pkg.latest) {
+      if (!flags.q) log.warn(i18n.t('pkgNotFound') + ': ' + inst.name);
+      continue;
     }
-    registry.add(name, {
-      name: name, version: null, source: 'local:' + fullPath,
-      file: baseName, path: fullPath, type: 'installer',
-      installedAt: new Date().toISOString()
-    });
-    return;
+    if (versionLib.compareVer(pkg.latest.version, inst.version) <= 0) {
+      if (!flags.q) log.info(inst.name + ' v' + inst.version + '  ' + i18n.t('updateAlreadyLatest'));
+      continue;
+    }
+    if (!flags.q) log.info(inst.name + ' v' + inst.version + ' -> v' + pkg.latest.version);
+    await install(pkg.name, pkg.latest.version, Object.assign({}, flags, { force: true }));
+    count++;
   }
-
-  const installdir = config.get('installdir');
-  const dest = path.join(installdir, name);
-  if (!flags.q) log.step(i18n.t('installingFromLocal') + ' ' + name + ' <- ' + fullPath);
-  ensureDir(installdir);
-  rmrf(dest);
-  ensureDir(dest);
-
-  if (stat.isDirectory()) copyDir(fullPath, dest);
-  else {
-    if (runner.isArchiveType(baseName)) {
-      const written = tryExtract(fullPath, baseName, dest);
-      if (written <= 0) copySingleFile(fullPath, baseName, dest);
-    } else copySingleFile(fullPath, baseName, dest);
-  }
-
-  registry.add(name, {
-    name: name, version: null, source: 'local:' + fullPath,
-    path: dest, type: 'installed', installedAt: new Date().toISOString()
-  });
-  if (!flags.q) log.success(i18n.t('installingDone') + ' ' + name + ' -> ' + dest);
+  return count;
 }
 
 async function addPackage(name, url, flags) {
@@ -211,64 +168,32 @@ async function addPackage(name, url, flags) {
   const tempdir = config.get('tempdir');
   ensureDir(tempdir);
   const urlPath = new URL(url).pathname;
-  const fileName = flags.name || path.basename(urlPath) || name;
-  const tmpFile = path.join(tempdir, fileName);
+  const fileName = path.basename(urlPath) || name;
+  const dest = path.join(tempdir, fileName);
 
   log.step(i18n.t('addingPkg') + ' ' + name + ' <- ' + url);
-  await net.downloadWithRetry(url, tmpFile);
+  await net.downloadWithRetry(url, dest);
 
-  if (runner.isInstallerType(fileName) && !flags['no-run']) {
+  const isInstaller = runner.isInstallerType(fileName);
+
+  if (isInstaller && !flags['no-run']) {
     try {
-      const code = await runner.runInstaller(tmpFile, fileName, flags);
+      const code = await runner.runInstaller(dest, fileName, flags);
       if (code === 0) log.success(i18n.t('installerDone'));
       else log.warn(i18n.t('installerExitCode') + ': ' + code);
-    } catch (err) { log.error(i18n.t('installerFailed') + ': ' + err.message); }
+    } catch (err) {
+      log.error(i18n.t('installerFailed') + ': ' + err.message);
+    }
     const keep = flags.k ? true : await runner.askYesNo(i18n.t('keepInstaller'), false);
-    if (!keep) { try { fs.unlinkSync(tmpFile); } catch (_) {} }
-    registry.add(name, {
-      name: name, version: null, source: url, file: fileName,
-      path: keep ? tmpFile : '', type: 'installer',
-      installedAt: new Date().toISOString()
-    });
-    return;
+    if (!keep) { try { fs.unlinkSync(dest); } catch (_) {} }
   }
-
-  const installdir = config.get('installdir');
-  const dest = path.join(installdir, name);
-  rmrf(dest);
-  ensureDir(dest);
-  installFileInto(tmpFile, fileName, dest, flags);
-  try { fs.unlinkSync(tmpFile); } catch (_) {}
 
   registry.add(name, {
     name: name, version: null, source: url, path: dest,
-    type: 'added', installedAt: new Date().toISOString()
+    type: isInstaller ? 'installer' : 'added',
+    installedAt: new Date().toISOString()
   });
-  log.success(i18n.t('addingDone') + ' ' + name + ' -> ' + dest);
-}
-
-async function uninstall(name) {
-  if (!name) throw new Error(i18n.t('uninstallUsage'));
-  const info = registry.get(name);
-  if (!info) throw new Error(i18n.t('notInstalled') + ': ' + name);
-
-  if (info.type === 'installer') {
-    if (info.path && fs.existsSync(info.path)) {
-      const rm = await runner.askYesNo(i18n.t('removeDownloadedInstaller') + ' ' + info.path, false);
-      if (rm) { try { fs.unlinkSync(info.path); } catch (_) {} log.info(i18n.t('deletedPath') + ' ' + info.path); }
-    }
-    registry.remove(name);
-    log.success(i18n.t('uninstalled') + ' ' + name);
-    log.info(i18n.t('installerUninstallHint'));
-    return;
-  }
-
-  if (info.type !== 'registered' && info.path && fs.existsSync(info.path)) {
-    rmrf(info.path);
-    log.info(i18n.t('deletedPath') + ' ' + info.path);
-  }
-  registry.remove(name);
-  log.success(i18n.t('uninstalled') + ' ' + name);
+  log.success(i18n.t('addingDone') + ' ' + name);
 }
 
 async function registerDisk(name, diskPath) {
@@ -291,8 +216,10 @@ async function unregister(name) {
 }
 
 module.exports = {
-  install: install, installFromEpm: installFromEpm, installLocal: installLocal,
-  installFileInto: installFileInto,
-  addPackage: addPackage, uninstall: uninstall,
-  registerDisk: registerDisk, unregister: unregister
+  install: install,
+  uninstall: uninstall,
+  updatePackage: updatePackage,
+  addPackage: addPackage,
+  registerDisk: registerDisk,
+  unregister: unregister
 };

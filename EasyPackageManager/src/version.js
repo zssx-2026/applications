@@ -7,40 +7,44 @@ const config = require('./config');
 const VERSION_FILE = path.join(config.ROOT, '.epm-versions.json');
 
 function parseVer(v) {
-  if (!v) return [0, 0, 0];
-  const s = String(v).replace(/^v/i, '');
-  const m = s.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
-  if (!m) return [0, 0, 0];
+  if (!v) return [0, 0, 0, ''];
+  const s = String(v).replace(/^v/i, '').trim();
+  const m = s.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(.*)$/);
+  if (!m) return [0, 0, 0, '', s];
   return [
     parseInt(m[1] || '0', 10),
     parseInt(m[2] || '0', 10),
-    parseInt(m[3] || '0', 10)
+    parseInt(m[3] || '0', 10),
+    m[4] ? parseInt(m[4], 10) : 0,
+    (m[5] || '').trim()
   ];
 }
 
 function compareVer(a, b) {
   const av = parseVer(a), bv = parseVer(b);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     if (av[i] > bv[i]) return 1;
     if (av[i] < bv[i]) return -1;
   }
+  if (av[4] && bv[4]) return av[4].localeCompare(bv[4]);
+  if (av[4]) return 1;
+  if (bv[4]) return -1;
   return 0;
 }
 
 function isValidVersion(v) {
   if (!v) return false;
   const s = String(v).replace(/^v/i, '');
-  if (!/^\d+(?:\.\d+){0,2}$/.test(s)) return false;
-  return true;
+  return /^\d+(?:\.\d+){0,3}(?:[.\-][\w]+)*$/.test(s);
 }
 
 function loadState() {
   try {
     const d = JSON.parse(fs.readFileSync(VERSION_FILE, 'utf8'));
-    if (!Array.isArray(d.history)) d.history = [];
+    if (!d.packages || typeof d.packages !== 'object') d.packages = {};
     return d;
   } catch (_) {
-    return { current: null, history: [] };
+    return { version: 1, packages: {} };
   }
 }
 
@@ -53,16 +57,32 @@ function saveState(d) {
   } catch (_) {}
 }
 
-function getCurrent() {
-  return loadState().current || null;
+function getCurrent(name) {
+  const d = loadState();
+  if (name) return d.packages[name] || null;
+  return null;
 }
 
-function setCurrent(tag) {
+function setCurrent(name, ver) {
   const d = loadState();
-  d.current = tag;
-  d.history.push({ tag: tag, installedAt: new Date().toISOString() });
-  d.history = d.history.slice(-30);
+  d.packages[name] = {
+    version: ver,
+    installedAt: new Date().toISOString()
+  };
   saveState(d);
+}
+
+function removeCurrent(name) {
+  const d = loadState();
+  delete d.packages[name];
+  saveState(d);
+}
+
+function listInstalled() {
+  const d = loadState();
+  return Object.keys(d.packages).map(function (n) {
+    return { name: n, version: d.packages[n].version, installedAt: d.packages[n].installedAt };
+  }).sort(function (a, b) { return a.name.localeCompare(b.name); });
 }
 
 function getPkgVersion() {
@@ -82,6 +102,8 @@ module.exports = {
   saveState: saveState,
   getCurrent: getCurrent,
   setCurrent: setCurrent,
+  removeCurrent: removeCurrent,
+  listInstalled: listInstalled,
   getPkgVersion: getPkgVersion,
   VERSION_FILE: VERSION_FILE
 };

@@ -5,6 +5,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const config = require('./config');
+const names = require('./names');
 const classify = require('./classify');
 
 const URL_FILE = path.join(config.ROOT, 'url.json');
@@ -58,7 +59,7 @@ function requestOnce(url, timeoutMs) {
       res.on('error', reject);
     });
     req.on('error', reject);
-    req.setTimeout(timeoutMs, function () { req.destroy(new Error('Timeout (' + timeoutMs + 'ms)')); });
+    req.setTimeout(timeoutMs, function () { req.destroy(new Error('Timeout')); });
     req.end();
   });
 }
@@ -77,9 +78,7 @@ async function requestWithRetry(url, redirect) {
       if (res.status >= 500) {
         lastErr = new Error('HTTP ' + res.status);
         if (attempt < net.retries) {
-          const wait = net.retryDelayMs * Math.pow(2, attempt);
-          console.log('[epm] HTTP ' + res.status + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + net.retries + ')');
-          await sleep(wait); continue;
+          await sleep(net.retryDelayMs * Math.pow(2, attempt)); continue;
         }
         throw lastErr;
       }
@@ -87,9 +86,7 @@ async function requestWithRetry(url, redirect) {
     } catch (err) {
       lastErr = err;
       if (attempt < net.retries) {
-        const wait = net.retryDelayMs * Math.pow(2, attempt);
-        console.log('[epm] ' + err.message + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + net.retries + ')');
-        await sleep(wait); continue;
+        await sleep(net.retryDelayMs * Math.pow(2, attempt)); continue;
       }
       throw err;
     }
@@ -134,7 +131,7 @@ async function fetchAllReleases(owner, repo) {
   while (url && page <= MAX_PAGES) {
     console.log('[epm] fetching page ' + page + ' ...');
     const res = await requestWithRetry(url);
-    if (res.status === 404) throw new Error('repo not found: ' + owner + '/' + repo);
+    if (res.status === 404) throw new Error('repo not found');
     if (res.status === 403 || res.status === 429) throw new Error('GitHub API rate limited');
     if (res.status >= 400) throw new Error('HTTP ' + res.status);
     let batch;
@@ -154,6 +151,24 @@ async function fetchAllReleases(owner, repo) {
   return all;
 }
 
+async function fetchNameTxt(rel) {
+  const asset = (rel.assets || []).find(function (a) {
+    return /^name\.txt$/i.test(a.name);
+  });
+  if (!asset) return null;
+  try {
+    const res = await requestOnce(asset.url, getNet().timeoutMs);
+    if (res.status >= 400) return null;
+    return res.body.toString('utf8');
+  } catch (_) {
+    return null;
+  }
+}
+
+function isApplicationTag(tag) {
+  return /application/i.test(String(tag || ''));
+}
+
 async function fetchAll(options) {
   options = options || {};
   const urlData = readJson(URL_FILE, {});
@@ -162,18 +177,25 @@ async function fetchAll(options) {
 
   if (options.offline) {
     const releases = urlData.releases || [];
-    return {
-      offline: true,
-      releases: releases,
-      latest: urlData.latest || null,
-      fileCount: releases.reduce(function (n, r) { return n + (r.assets ? r.assets.length : 0); }, 0)
-    };
+    return { offline: true, releases: releases, fileCount: 0 };
   }
 
   const all = await fetchAllReleases(owner, repo);
   const visible = all.filter(function (r) { return !r.draft; });
-  const stable = visible.filter(function (r) { return !r.prerelease; });
-  const latest = stable[0] || visible[0] || null;
+
+  // 只保留 tag 包含 application 的 release
+  const apps = visible.filter(function (r) { return isApplicationTag(r.tag); });
+
+  console.log('[epm] ' + apps.length + ' releases with application tag');
+
+  // 拉取每个 release 的 name.txt
+  for (const rel of apps) {
+    const txt = await fetchNameTxt(rel);
+    if (txt) {
+      rel.nameTxt = { raw: txt, entries: names.parse(txt) };
+      console.log('[epm] name.txt ' + rel.tag + ': ' + rel.nameTxt.entries.length + ' entries');
+    }
+  }
 
   const next = {
     version: 1,
@@ -183,17 +205,11 @@ async function fetchAll(options) {
       api: 'https://api.github.com/repos/' + owner + '/' + repo + '/releases',
       releases: 'https://github.com/' + owner + '/' + repo + '/releases'
     },
-    latest: latest,
-    releases: visible
+    releases: apps
   };
 
   writeJson(URL_FILE, next);
-
-  return {
-    releases: visible,
-    latest: latest,
-    fileCount: visible.reduce(function (n, r) { return n + (r.assets ? r.assets.length : 0); }, 0)
-  };
+  return { releases: apps, fileCount: apps.length };
 }
 
 module.exports = { fetchAll: fetchAll, fetchAllReleases: fetchAllReleases };

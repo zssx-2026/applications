@@ -1,129 +1,159 @@
 'use strict';
 
 const path = require('path');
-const platform = require('./platform');
 const config = require('./config');
-const pak = require('./pak');
-const classify = require('./classify');
+const versionLib = require('./version');
 const { readJson } = require('./utils');
 
 const URL_FILE = path.join(config.ROOT, 'url.json');
 
 function loadUrls() { return readJson(URL_FILE, {}) || {}; }
 
-function listAvailable() {
+/**
+ * 构建包列表：从所有 release 的 name.txt 聚合
+ */
+function listPackages() {
   const urls = loadUrls();
   const releases = urls.releases || [];
-
-  const githubPkgs = releases.map(function (r) {
-    return {
-      name: r.tag || r.name, version: r.tag, releaseName: r.name || r.tag,
-      url: r.htmlUrl, publishedAt: r.publishedAt,
-      prerelease: Boolean(r.prerelease), draft: Boolean(r.draft),
-      type: 'github',
-      files: (r.assets || []).map(function (a) {
-        return {
-          name: a.name, url: a.url, size: a.size,
-          contentType: a.contentType, downloadCount: a.downloadCount, updatedAt: a.updatedAt,
-          type: a.type || classify.classify(a.name)
-        };
-      })
-    };
-  });
-
-  const pakPkgs = pak.list().map(function (p) {
-    return {
-      name: p.name, version: null, releaseName: p.name,
-      url: p.url, publishedAt: p.addedAt || null,
-      prerelease: false, draft: false, type: 'pak',
-      files: [{ name: p.file || p.name, url: p.url, size: null }]
-    };
-  });
-
   const map = new Map();
-  for (const p of githubPkgs) map.set(p.name, p);
-  for (const p of pakPkgs) map.set(p.name, p);
-  return Array.from(map.values());
+
+  for (const rel of releases) {
+    const nt = rel.nameTxt;
+    if (!nt || !nt.entries) continue;
+    for (const e of nt.entries) {
+      if (!map.has(e.name)) {
+        map.set(e.name, {
+          name: e.name,
+          type: e.type,
+          company: e.company,
+          versions: []
+        });
+      }
+      const pkg = map.get(e.name);
+      const asset = (rel.assets || []).find(function (a) { return a.name === e.fileName; });
+      pkg.versions.push({
+        version: e.version,
+        tag: rel.tag,
+        fileName: e.fileName,
+        type: e.type,
+        company: e.company,
+        url: asset ? asset.url : null,
+        size: asset ? asset.size : 0,
+        assetType: asset ? asset.type : 'unknown',
+        publishedAt: rel.publishedAt,
+        htmlUrl: rel.htmlUrl
+      });
+    }
+  }
+
+  for (const pkg of map.values()) {
+    pkg.versions.sort(function (a, b) { return versionLib.compareVer(a.version, b.version); });
+    pkg.latest = pkg.versions[pkg.versions.length - 1];
+  }
+
+  return Array.from(map.values()).sort(function (a, b) {
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
 }
 
 function find(name) {
-  for (const p of listAvailable()) {
-    if (p.name === name || p.version === name || p.releaseName === name) return p;
-  }
-  return null;
-}
-
-function findFuzzy(name) {
-  const all = listAvailable();
-  const lower = String(name).toLowerCase();
-  for (const p of all) if (p.name.toLowerCase() === lower) return p;
-  for (const p of all) if (p.name.toLowerCase().indexOf(lower) === 0) return p;
-  for (const p of all) if (p.name.toLowerCase().indexOf(lower) !== -1) return p;
-  return null;
-}
-
-function findByFile(name) {
   if (!name) return null;
   const lower = String(name).toLowerCase();
-  const all = listAvailable();
-
-  for (const p of all) {
-    for (const f of p.files) {
-      if (f.name.toLowerCase() === lower) return { pkg: p, file: f };
-    }
+  for (const p of listPackages()) {
+    if (p.name === name) return p;
   }
-  for (const p of all) {
-    for (const f of p.files) {
-      if (f.name.toLowerCase().indexOf(lower) !== -1) return { pkg: p, file: f };
-    }
+  for (const p of listPackages()) {
+    if (p.name.toLowerCase() === lower) return p;
   }
   return null;
-}
-
-function pickForCurrentPlatform(pkg) {
-  if (!pkg || !pkg.files || !pkg.files.length) return null;
-  return platform.pickAsset(pkg.files, pkg.name);
 }
 
 function stats() {
   const urls = loadUrls();
   const releases = urls.releases || [];
-  const localPkgs = pak.list();
-  let totalFiles = 0;
-  let totalSize = 0;
+  const pkgs = listPackages();
+  let fileCount = 0;
   for (const r of releases) {
-    const assets = r.assets || [];
-    totalFiles += assets.length;
-    for (const a of assets) if (a.size) totalSize += a.size;
+    fileCount += (r.assets || []).length;
   }
   return {
     releaseCount: releases.length,
-    pakCount: localPkgs.length,
-    fileCount: totalFiles + localPkgs.length,
-    totalSize: totalSize,
+    pkgCount: pkgs.length,
+    fileCount: fileCount,
     updatedAt: urls.updatedAt || null
   };
 }
 
-function search(keyword) {
-  const lower = String(keyword || '').toLowerCase();
-  if (!lower) return listAvailable();
-  const hits = [];
-  for (const p of listAvailable()) {
-    const nameMatch = p.name.toLowerCase().indexOf(lower) !== -1;
-    const matched = p.files.filter(function (f) {
-      return f.name.toLowerCase().indexOf(lower) !== -1;
-    });
-    if (matched.length || nameMatch) {
-      hits.push(Object.assign({}, p, { files: matched.length ? matched : p.files }));
+/**
+ * 高级搜索
+ * opts: { text, fullWord, company, excludeCompanies, version, excludeVersions, type, allVersions, caseSensitive }
+ */
+function search(opts) {
+  opts = opts || {};
+  const text = opts.text || '';
+  const lowerText = text.toLowerCase();
+  const company = opts.company || null;
+  const version = opts.version || null;
+  const type = opts.type || null;
+  const exclC = opts.excludeCompanies || [];
+  const exclV = opts.excludeVersions || [];
+  const all = listPackages();
+
+  const results = [];
+
+  for (const pkg of all) {
+    // 类型过滤
+    if (type && pkg.type !== type) continue;
+
+    // 公司过滤
+    if (company) {
+      if (pkg.company.toLowerCase().indexOf(company.toLowerCase()) === -1) continue;
     }
+    if (exclC.length) {
+      let excl = false;
+      for (const c of exclC) {
+        if (pkg.company.toLowerCase() === c.toLowerCase()) { excl = true; break; }
+      }
+      if (excl) continue;
+    }
+
+    // 文本匹配
+    let textMatch = true;
+    if (text) {
+      if (opts.fullWord) {
+        textMatch = (pkg.name === text) ||
+                    (pkg.name.toLowerCase() === lowerText && !opts.caseSensitive);
+      } else {
+        textMatch = pkg.name.toLowerCase().indexOf(lowerText) !== -1;
+      }
+    }
+
+    // 版本匹配 + 排除
+    const matchedVersions = pkg.versions.filter(function (v) {
+      if (version && v.version !== version) return false;
+      for (const ev of exclV) {
+        if (v.version === ev) return false;
+      }
+      return true;
+    });
+
+    if (!matchedVersions.length) continue;
+    if (!textMatch) continue;
+
+    results.push(Object.assign({}, pkg, {
+      versions: opts.allVersions ? matchedVersions : [matchedVersions[matchedVersions.length - 1]],
+      latest: matchedVersions[matchedVersions.length - 1]
+    }));
   }
-  return hits;
+
+  return results;
 }
 
 module.exports = {
-  loadUrls: loadUrls, listAvailable: listAvailable,
-  find: find, findFuzzy: findFuzzy, findByFile: findByFile,
-  pickForCurrentPlatform: pickForCurrentPlatform,
-  stats: stats, search: search, URL_FILE: URL_FILE
+  loadUrls: loadUrls,
+  listPackages: listPackages,
+  find: find,
+  stats: stats,
+  search: search,
+  URL_FILE: URL_FILE
 };
