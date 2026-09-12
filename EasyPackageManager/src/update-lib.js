@@ -13,6 +13,10 @@ const SETTINGS_FILE = path.join(config.ROOT, 'settings.json');
 const MAX_PAGES = 100;
 const PER_PAGE = 100;
 
+function t(key, fallback) {
+  try { return require('./i18n').t(key); } catch (_) { return fallback || key; }
+}
+
 function readJson(f, d) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) { return d; } }
 function writeJson(f, d) { fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n', 'utf8'); }
 
@@ -129,14 +133,14 @@ async function fetchAllReleases(owner, repo) {
   let url = 'https://api.github.com/repos/' + owner + '/' + repo + '/releases?per_page=' + PER_PAGE + '&page=1';
   let page = 1;
   while (url && page <= MAX_PAGES) {
-    console.log('[epm] fetching page ' + page + ' ...');
+    console.log(t('logFetchingPage') + ' ' + page + ' ...');
     const res = await requestWithRetry(url);
-    if (res.status === 404) throw new Error('repo not found');
-    if (res.status === 403 || res.status === 429) throw new Error('GitHub API rate limited');
+    if (res.status === 404) throw new Error(t('errRepoNotFound') + ': ' + owner + '/' + repo);
+    if (res.status === 403 || res.status === 429) throw new Error(t('errApiRateLimit'));
     if (res.status >= 400) throw new Error('HTTP ' + res.status);
     let batch;
     try { batch = JSON.parse(res.body.toString('utf8')); }
-    catch (e) { throw new Error('parse error: ' + e.message); }
+    catch (e) { throw new Error(t('errParseResponse') + ': ' + e.message); }
     if (!Array.isArray(batch) || !batch.length) break;
     for (const r of batch) {
       const key = String(r.id);
@@ -157,9 +161,11 @@ async function fetchNameTxt(rel) {
   });
   if (!asset) return null;
   try {
-    const res = await requestOnce(asset.url, getNet().timeoutMs);
+    const res = await requestWithRetry(asset.url);
     if (res.status >= 400) return null;
-    return res.body.toString('utf8');
+    const txt = res.body.toString('utf8');
+    if (!txt || !txt.trim()) return null;
+    return txt;
   } catch (_) {
     return null;
   }
@@ -182,18 +188,17 @@ async function fetchAll(options) {
 
   const all = await fetchAllReleases(owner, repo);
   const visible = all.filter(function (r) { return !r.draft; });
-
-  // 只保留 tag 包含 application 的 release
   const apps = visible.filter(function (r) { return isApplicationTag(r.tag); });
 
-  console.log('[epm] ' + apps.length + ' releases with application tag');
+  console.log(t('logReleasesWithTag') + ' ' + apps.length);
 
-  // 拉取每个 release 的 name.txt
   for (const rel of apps) {
     const txt = await fetchNameTxt(rel);
     if (txt) {
       rel.nameTxt = { raw: txt, entries: names.parse(txt) };
-      console.log('[epm] name.txt ' + rel.tag + ': ' + rel.nameTxt.entries.length + ' entries');
+      console.log(t('logNameTxt') + ' ' + rel.tag + ': ' + rel.nameTxt.entries.length + ' ' + t('logEntries'));
+    } else {
+      console.log(t('logNameTxtMissing') + ' ' + rel.tag);
     }
   }
 

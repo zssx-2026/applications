@@ -32,23 +32,26 @@ function buildHelpText() {
     '  epm list                             ' + t('helpCmdList'),
     '  epm list install                     ' + t('helpCmdListInstall'),
     '  epm search <keyword> [opts]          ' + t('helpCmdSearch'),
-    '      -a                               全字匹配',
-    '      -na                              不全字匹配',
-    '      -i <company>                     按公司搜索（可多次）',
-    '      -ni <c1,c2>                      排除公司',
-    '      -t <setup|port>                  按类型',
-    '      -v <version>                     按版本（可多次）',
-    '      -nv <v1,v2>                      排除版本',
-    '      -av                              列出所有版本',
+    '      -a                               ' + t('helpSearchA'),
+    '      -na                              ' + t('helpSearchNA'),
+    '      -i <company>                     ' + t('helpSearchI'),
+    '      -ni <c1,c2>                      ' + t('helpSearchNI'),
+    '      -t <setup|port>                  ' + t('helpSearchT'),
+    '      -v <version>                     ' + t('helpSearchV'),
+    '      -nv <v1,v2>                      ' + t('helpSearchNV'),
+    '      -av                              ' + t('helpSearchAV'),
     '  epm get                              ' + t('helpCmdGet'),
     '  epm install <name> [version]         ' + t('helpCmdInstall'),
-    '      -q                               静默',
-    '      -k                               保留安装包',
-    '      --no-run                         只下载不运行',
-    '      -d <dir>                         下载到指定目录',
+    '      -q                               ' + t('helpInstallQ'),
+    '      -k                               ' + t('helpInstallK'),
+    '      --no-run                         ' + t('helpInstallNoRun'),
+    '      -d <dir>                         ' + t('helpInstallD'),
     '  epm update [name]                    ' + t('helpCmdUpdate'),
-    '      --check                          只检查',
+    '      --check                          ' + t('helpUpdateCheck'),
     '  epm version [name]                   ' + t('helpCmdVersion'),
+    '  epm web [start|stop|status]          ' + t('helpCmdWeb'),
+    '      -p <port>                        ' + t('helpWebPort'),
+    '      -p=<port>                        ' + t('helpWebPort'),
     '  epm uninstall <name>                 ' + t('helpCmdUninstall'),
     '  epm add <name> <url>                 ' + t('helpCmdAdd'),
     '  epm redadd <name> <path>             ' + t('helpCmdRedadd'),
@@ -95,6 +98,17 @@ function parseArgs(argv) {
     if (a === '--no-run') { args.flags['no-run'] = true; continue; }
     if (a === '--check') { args.flags.check = true; continue; }
 
+    // 支持 -x=value
+    if (a.length >= 3 && a[0] === '-' && a[1] !== '-' && a.indexOf('=') !== -1) {
+      const eq = a.indexOf('=');
+      const key = a.slice(1, eq);
+      const value = a.slice(eq + 1);
+      if (SINGLE_VALUE_FLAGS.indexOf(key) !== -1) {
+        args.flags[key] = value;
+        continue;
+      }
+    }
+
     if (a.length >= 2 && a[0] === '-' && a[1] !== '-') {
       const key = a.slice(1);
 
@@ -109,8 +123,8 @@ function parseArgs(argv) {
           i++;
           if (!args.multi[key]) args.multi[key] = [];
           for (const v of next.split(',')) {
-            const t = v.trim();
-            if (t) args.multi[key].push(t);
+            const tt = v.trim();
+            if (tt) args.multi[key].push(tt);
           }
         }
         continue;
@@ -148,7 +162,8 @@ function parseArgs(argv) {
 const KNOWN_COMMANDS = [
   'cli', 'list', 'get', 'search', 'add', 'install', 'i', 'download',
   'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp', 'set',
-  'lang', 'pak', 'clear', 'cls', 'update', 'version', 'v', 'exit', 'quit', 'help'
+  'lang', 'pak', 'clear', 'cls', 'update', 'version', 'v', 'web',
+  'exit', 'quit', 'help'
 ];
 
 async function dispatch(argv) {
@@ -208,6 +223,9 @@ async function dispatch(argv) {
     case 'lang':
       return lang(args._.slice(1));
 
+    case 'web':
+      return webCommand(args._.slice(1), args.flags);
+
     case 'clear':
     case 'cls':
       clearScreen(); return;
@@ -228,19 +246,67 @@ async function dispatch(argv) {
   }
 }
 
+/* ─────────────────────────────────────── web ── */
+
+async function webCommand(rest, flags) {
+  const web = require('./web');
+  const sub = rest[0] || 'start';
+
+  if (sub === 'stop') {
+    const r = await web.stop();
+    if (r.ok) log.success(i18n.t('webStopped'));
+    else log.warn(i18n.t('webNotRunning'));
+    return;
+  }
+
+  if (sub === 'status') {
+    const s = web.status();
+    if (s.running) {
+      log.info(i18n.t('webRunning') + ' ' + i18n.t('webPortLabel') + ' ' + s.port);
+      console.log('  http://localhost:' + s.port + '/');
+    } else {
+      log.info(i18n.t('webNotRunning'));
+    }
+    return;
+  }
+
+  // 默认 start
+  log.step(i18n.t('webStarting'));
+  const port = flags.p || 3800;
+  const r = await web.start({ port: port });
+
+  if (r.ok) {
+    log.success(i18n.t('webStarted') + ' ' + i18n.t('webPortLabel') + ' ' + r.port);
+    console.log('  http://localhost:' + r.port + '/');
+    console.log('  ' + color.gray(i18n.t('webStopHint')));
+  } else if (r.error === 'alreadyRunning') {
+    log.warn(i18n.t('webAlreadyRunning') + ' ' + i18n.t('webPortLabel') + ' ' + r.port);
+  } else if (r.error === 'invalidPort') {
+    log.error(i18n.t('webInvalidPort') + ': ' + port);
+  } else {
+    log.error(i18n.t('webStartFailed') + ': ' + (r.message || r.error));
+  }
+}
+
 /* ─────────────────────────────────────── list ── */
 
 function listAvailable() {
   const pkgs = sources.listPackages();
   const st = sources.stats();
+
+  // 保持 applist.json 与当前状态同步
+  try { require('./applist').save(); } catch (_) {}
+
   if (!pkgs.length) {
     log.info(i18n.t('noAvailablePkgs'));
     log.info(i18n.t('runGetHint'));
     return;
   }
-  console.log(i18n.t('availablePkgs') + ':  ' + st.pkgCount + ' packages, ' +
-    st.releaseCount + ' releases, ' + st.fileCount + ' files');
-  if (st.updatedAt) console.log(color.gray('  updated at ' + st.updatedAt));
+  console.log(i18n.t('availablePkgs') + ':  ' +
+    st.pkgCount + ' ' + i18n.t('unitPackages') + ', ' +
+    st.releaseCount + ' ' + i18n.t('unitReleases') + ', ' +
+    st.fileCount + ' ' + i18n.t('unitFiles'));
+  if (st.updatedAt) console.log(color.gray('  ' + i18n.t('updatedAt') + ' ' + st.updatedAt));
   console.log('');
 
   for (const pkg of pkgs) {
@@ -250,7 +316,7 @@ function listAvailable() {
     console.log('      v' + lat.version + '  ' + lat.fileName + '  ' +
       (lat.size ? color.gray('(' + formatBytes(lat.size) + ')') : ''));
     if (pkg.versions.length > 1) {
-      console.log('      ' + color.gray('(' + pkg.versions.length + ' versions)'));
+      console.log('      ' + color.gray('(' + pkg.versions.length + ' ' + i18n.t('unitVersions') + ')'));
     }
   }
 }
@@ -333,8 +399,11 @@ function searchPackages(args) {
     return;
   }
 
-  const head = text ? '搜索 "' + text + '"' : '筛选';
-  console.log(head + ':  ' + hits.length + ' packages');
+  const head = text
+    ? i18n.t('searchHeader') + ' "' + text + '"'
+    : i18n.t('filterHeader');
+  console.log(head + ':  ' + hits.length + ' ' + i18n.t('unitPackages'));
+
   for (const p of hits) {
     const co = (p.company && p.company !== 'null') ? color.gray('  company=' + p.company) : '';
     console.log('');
@@ -354,7 +423,14 @@ async function getFromGithub() {
     const { fetchAll } = require('./update-lib');
     const r = await fetchAll({});
     if (!r.releases.length) { log.warn(i18n.t('noReleasesGot')); return; }
-    log.success(i18n.t('fetchPkgsOK') + ' ' + r.releases.length + ' releases');
+    log.success(i18n.t('fetchPkgsOK') + ' ' + r.releases.length + ' ' + i18n.t('unitReleases'));
+
+    // 保存 applist.json
+    try {
+      const applist = require('./applist');
+      const f = applist.save();
+      console.log(color.gray('  ' + i18n.t('applistSaved') + ': ' + f));
+    } catch (_) {}
   } catch (err) {
     log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
   }
@@ -376,9 +452,12 @@ async function runUpdate(args) {
 
   if (args.flags.check) return updateCheck(name);
 
+  args.flags.q = true;
+
+  log.step(i18n.t('updateStart'));
   const n = await installer.updatePackage(name, args.flags);
   if (n === 0) log.success(i18n.t('updateAlreadyLatest'));
-  else log.success(i18n.t('updateDone') + '  ' + n);
+  else log.success(i18n.t('updateDone') + '  ' + n + ' ' + i18n.t('updateUpdated'));
 }
 
 async function updateCheck(name) {
@@ -419,11 +498,11 @@ async function versionCommand(rest) {
   const reg = registry.get(name);
 
   if (reg) {
-    console.log(color.cyan(name) + '  installed: v' + reg.version);
+    console.log(color.cyan(name) + '  ' + i18n.t('versionInstalled') + ' v' + reg.version);
   }
   if (pkg) {
-    console.log(color.cyan(pkg.name) + '  latest: v' + pkg.latest.version +
-      '  (' + pkg.versions.length + ' versions)');
+    console.log(color.cyan(pkg.name) + '  ' + i18n.t('versionLatest') + ' v' + pkg.latest.version +
+      '  (' + pkg.versions.length + ' ' + i18n.t('unitVersions') + ')');
     console.log(i18n.t('versionAll'));
     for (const v of pkg.versions) {
       const mark = (reg && reg.version === v.version) ? color.green(' *') : '';
@@ -560,5 +639,6 @@ module.exports = {
   settings: settings,
   lang: lang,
   versionCommand: versionCommand,
-  runUpdate: runUpdate
+  runUpdate: runUpdate,
+  webCommand: webCommand
 };

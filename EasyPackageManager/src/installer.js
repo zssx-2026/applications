@@ -9,6 +9,7 @@ const sources = require('./sources');
 const net = require('./net');
 const extractor = require('./extractor');
 const runner = require('./runner');
+const killer = require('./killer');
 const versionLib = require('./version');
 const i18n = require('./i18n');
 const { ensureDir: ensureDir, rmrf: rmrf, log: log, formatBytes: formatBytes } = require('./utils');
@@ -45,6 +46,18 @@ async function install(name, version, flags) {
       log.info('company: ' + target.company);
     }
     log.info(i18n.t('installingPlatform') + ': ' + platform.platform + '/' + platform.arch);
+  }
+
+  // ── 安装前结束相关进程 ──
+  const tryKill = flags.kill !== false;
+  if (tryKill) {
+    const n = await killer.killAndWait({
+      name: pkg.name,
+      fileName: target.fileName
+    }, 800);
+    if (n > 0 && !flags.q) {
+      log.info(i18n.t('killedProcess') + ' ' + pkg.name);
+    }
   }
 
   const tmpdir = config.get('tempdir');
@@ -115,6 +128,9 @@ async function uninstall(name) {
   if (!name) throw new Error(i18n.t('uninstallUsage'));
   const info = registry.get(name);
   if (!info) throw new Error(i18n.t('notInstalled') + ': ' + name);
+
+  await killer.killAndWait({ name: name, fileName: info.fileName }, 500);
+
   if (info.path && fs.existsSync(info.path)) {
     try {
       const stat = fs.statSync(info.path);
@@ -128,8 +144,15 @@ async function uninstall(name) {
   log.success(i18n.t('uninstalled') + ' ' + name);
 }
 
+/**
+ * 更新已安装的包
+ * 自动静默 + 自动结束进程
+ */
 async function updatePackage(name, flags) {
-  flags = flags || {};
+  flags = Object.assign({ q: true }, flags || {});
+  // update 强制静默
+  flags.q = true;
+
   const installed = registry.list();
   if (!installed.length) {
     log.info(i18n.t('noInstalledPkgs'));
@@ -146,15 +169,30 @@ async function updatePackage(name, flags) {
   for (const inst of targets) {
     const pkg = sources.find(inst.name);
     if (!pkg || !pkg.latest) {
-      if (!flags.q) log.warn(i18n.t('pkgNotFound') + ': ' + inst.name);
+      log.warn(i18n.t('pkgNotFound') + ': ' + inst.name);
       continue;
     }
     if (versionLib.compareVer(pkg.latest.version, inst.version) <= 0) {
-      if (!flags.q) log.info(inst.name + ' v' + inst.version + '  ' + i18n.t('updateAlreadyLatest'));
+      log.info('  ' + inst.name + ' v' + inst.version + '  ' + i18n.t('updateAlreadyLatest'));
       continue;
     }
-    if (!flags.q) log.info(inst.name + ' v' + inst.version + ' -> v' + pkg.latest.version);
-    await install(pkg.name, pkg.latest.version, Object.assign({}, flags, { force: true }));
+
+    log.info('  ' + inst.name + ' v' + inst.version + ' -> v' + pkg.latest.version);
+
+    // 结束进程
+    const n = await killer.killAndWait({
+      name: inst.name,
+      fileName: pkg.latest.fileName
+    }, 800);
+    if (n > 0) log.info('  ' + i18n.t('killedProcess') + ' ' + inst.name);
+
+    // 静默安装
+    await install(pkg.name, pkg.latest.version, {
+      q: true,
+      k: false,
+      'no-run': false,
+      kill: false   // 已经在外面 kill 过了
+    });
     count++;
   }
   return count;

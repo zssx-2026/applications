@@ -5,9 +5,13 @@ const proc = require('../src/process');
 
 proc.register();
 
+// 屏蔽所有信号，交给 shell 内部处理
+try { process.on('SIGINT', function () {}); } catch (_) {}
+try { process.on('SIGTERM', function () {}); } catch (_) {}
+try { process.on('SIGHUP', function () {}); } catch (_) {}
+try { process.on('SIGBREAK', function () {}); } catch (_) {}
+
 process.on('exit', function () { try { proc.unregister(); } catch (_) {} });
-process.on('SIGINT', function () { proc.exitAll(0); });
-process.on('SIGTERM', function () { proc.exitAll(0); });
 
 const args = process.argv.slice(2);
 

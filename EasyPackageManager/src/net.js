@@ -7,6 +7,10 @@ const path = require('path');
 const config = require('./config');
 const { ensureDir: ensureDir } = require('./utils');
 
+function t(key, fallback) {
+  try { return require('./i18n').t(key); } catch (_) { return fallback || key; }
+}
+
 function getRetries() { return Number(config.get('network.retries')) || 4; }
 function getRetryDelay() { return Number(config.get('network.retryDelayMs')) || 800; }
 function getTimeout() { return Number(config.get('network.timeoutMs')) || 30000; }
@@ -43,9 +47,13 @@ function requestOnce(url, options) {
       res.on('error', reject);
     });
     req.on('error', reject);
-    req.setTimeout(getTimeout(), function () { req.destroy(new Error('Timeout (' + getTimeout() + 'ms)')); });
+    req.setTimeout(getTimeout(), function () { req.destroy(new Error('Timeout')); });
     req.end();
   });
+}
+
+function retryLog(msg, attempt, total) {
+  console.log('\u001b[33m!\u001b[0m ' + msg + ' (' + (attempt + 1) + '/' + total + ')');
 }
 
 async function httpGetWithRetry(url, options, redirect) {
@@ -64,9 +72,8 @@ async function httpGetWithRetry(url, options, redirect) {
       if (res.statusCode >= 500) {
         lastErr = new Error('HTTP ' + res.statusCode + ': ' + url);
         if (attempt < retries) {
-          const wait = baseDelay * Math.pow(2, attempt);
-          console.log('\u001b[33m!\u001b[0m HTTP ' + res.statusCode + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-          await sleep(wait); continue;
+          retryLog(t('logRetryHttp') + ' HTTP ' + res.statusCode, attempt, retries);
+          await sleep(baseDelay * Math.pow(2, attempt)); continue;
         }
         throw lastErr;
       }
@@ -74,9 +81,8 @@ async function httpGetWithRetry(url, options, redirect) {
     } catch (err) {
       lastErr = err;
       if (attempt < retries) {
-        const wait = baseDelay * Math.pow(2, attempt);
-        console.log('\u001b[33m!\u001b[0m ' + err.message + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-        await sleep(wait); continue;
+        retryLog(t('logRetryErr') + ' ' + err.message, attempt, retries);
+        await sleep(baseDelay * Math.pow(2, attempt)); continue;
       }
       throw err;
     }
@@ -143,9 +149,8 @@ async function downloadWithRetry(url, dest, options) {
       lastErr = err;
       try { fs.unlinkSync(dest); } catch (_) {}
       if (attempt < retries) {
-        const wait = baseDelay * Math.pow(2, attempt);
-        console.log('\u001b[33m!\u001b[0m ' + err.message + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-        await sleep(wait); continue;
+        retryLog(t('logRetryErr') + ' ' + err.message, attempt, retries);
+        await sleep(baseDelay * Math.pow(2, attempt)); continue;
       }
       throw err;
     }
