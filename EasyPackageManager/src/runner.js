@@ -80,17 +80,60 @@ async function runInstaller(filePath, fileName, flags) {
   return await spawnWait(abs, []);
 }
 
+/**
+ * 询问 y/n
+ * - 若在交互式 CLI 中（global.__epm_rl 存在），复用外层的 readline
+ * - 否则（命令行直接运行）用 stdin.once('data')
+ * 绝不创建新的 readline，避免把外层 readline 关闭
+ */
 function askYesNo(question, defaultYes) {
   return new Promise(function (resolve) {
-    const readline = require('readline');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const hint = defaultYes ? ' [Y/n] ' : ' [y/N] ';
-    rl.question(question + hint, function (ans) {
-      rl.close();
-      const a = String(ans || '').trim().toLowerCase();
-      if (!a) return resolve(Boolean(defaultYes));
-      resolve(a === 'y' || a === 'yes');
-    });
+    const text = question + hint;
+
+    // 交互式 CLI：用外层 readline
+    if (global.__epm_rl && global.__epm_rl.question) {
+      global.__epm_rl.question(text, function (ans) {
+        const a = String(ans || '').trim().toLowerCase();
+        if (!a) return resolve(Boolean(defaultYes));
+        resolve(a === 'y' || a === 'yes');
+      });
+      return;
+    }
+
+    // 命令行模式：监听 stdin 一次
+    process.stdout.write(text);
+
+    let buf = '';
+    let done = false;
+
+    function onData(chunk) {
+      if (done) return;
+      buf += String(chunk);
+      const idx = buf.indexOf('\n');
+      if (idx === -1 && buf.indexOf('\r') === -1) return;
+
+      done = true;
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('end', onEnd);
+
+      const line = buf.split(/[\r\n]/)[0].trim().toLowerCase();
+      if (!line) return resolve(Boolean(defaultYes));
+      resolve(line === 'y' || line === 'yes');
+    }
+
+    function onEnd() {
+      if (done) return;
+      done = true;
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('end', onEnd);
+      resolve(Boolean(defaultYes));
+    }
+
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', onData);
+    process.stdin.on('end', onEnd);
+    process.stdin.resume();
   });
 }
 

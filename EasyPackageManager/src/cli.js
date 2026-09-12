@@ -53,6 +53,10 @@ function buildHelpText() {
     '  epm lang set <name>                  ' + t('helpCmdLangSet'),
     '  epm clear                            ' + t('helpCmdClear'),
     '  epm update                           ' + t('helpCmdUpdate'),
+    '      --check                          ' + t('helpCmdUpdateCheck'),
+    '      --run                            ' + t('helpCmdUpdateRun'),
+    '      -d <dir>                         ' + t('helpCmdUpdateDir'),
+    '  epm version                          ' + t('helpCmdVersion'),
     '  epm exit                             ' + t('helpCmdExit'),
     '  epm help                             ' + t('helpCmdHelp'),
     '',
@@ -100,7 +104,7 @@ function parseArgs(argv) {
 const KNOWN_COMMANDS = [
   'run', 'cli', 'list', 'get', 'search', 'add', 'install', 'i', 'download',
   'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp', 'set',
-  'lang', 'pak', 'clear', 'cls', 'update', 'exit', 'quit', 'help'
+  'lang', 'pak', 'clear', 'cls', 'update', 'version', 'v', 'exit', 'quit', 'help'
 ];
 
 async function dispatch(argv) {
@@ -134,7 +138,9 @@ async function dispatch(argv) {
     case 'lang': return lang(args._.slice(1));
     case 'clear':
     case 'cls': clearScreen(); return;
-    case 'update': return runUpdate();
+    case 'update': return runUpdate(args.flags);
+    case 'version':
+    case 'v': return showVersion();
     case 'exit':
     case 'quit': return proc.exitAll(0);
     case 'help': console.log(buildHelpText()); return;
@@ -330,16 +336,167 @@ async function getFromGithub() {
   }
 }
 
-async function runUpdate() {
+async function runUpdate(flags) {
+  flags = flags || {};
+  const version = require('./version');
+  const classify = require('./classify');
+  const net = require('./net');
   const { fetchAll } = require('./update-lib');
-  const r = await fetchAll({});
-  log.success(i18n.t('fetchPkgsOK') + ' ' + r.releases.length + ' releases, ' + r.fileCount + ' files');
+  const { ensureDir: ensureDir } = require('./utils');
+
+  log.step(i18n.t('updateFetching'));
+  try {
+    await fetchAll({});
+  } catch (err) {
+    log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
+    return;
+  }
+
+  const all = sources.listAvailable();
+
+  const validReleases = all.filter(function (p) {
+    return version.isValidVersion(p.version);
+  }).sort(function (a, b) {
+    return version.compareVer(a.version, b.version);
+  });
+
+  if (!validReleases.length) {
+    log.warn(i18n.t('updateNoReleases'));
+    return;
+  }
+
+  const current = version.getCurrent();
+
+  if (!current) {
+    const latest = validReleases[validReleases.length - 1];
+    log.info(i18n.t('updateFirstRun') + ': ' + latest.version);
+
+    const targets = [];
+    for (const f of latest.files) {
+      const ftype = f.type || classify.classify(f.name);
+      if (ftype === 'installer') targets.push({ release: latest, file: f });
+    }
+
+    if (!targets.length) {
+      log.warn(i18n.t('updateNoSetup'));
+      version.setCurrent(latest.version);
+      return;
+    }
+
+    const dest = flags.d ? path.resolve(flags.d) : config.ROOT;
+    ensureDir(dest);
+
+    if (flags.check) {
+      console.log(i18n.t('updatePlan') + ':  -> ' + latest.version);
+      for (const t of targets) console.log('  ' + t.file.name);
+      return;
+    }
+
+    let okN = 0, failN = 0;
+    for (const t of targets) {
+      const target = path.join(dest, t.file.name);
+      if (!flags.q) log.info(t.release.version + '  ' + t.file.name);
+      try {
+        await net.downloadWithRetry(t.file.url, target);
+        okN++;
+        if (flags.run) {
+          try {
+            const runner = require('./runner');
+            await runner.runInstaller(target, t.file.name, flags);
+          } catch (err2) {
+            log.error(i18n.t('installerFailed') + ': ' + err2.message);
+          }
+        }
+      } catch (err3) {
+        failN++;
+        log.error(t.file.name + ': ' + err3.message);
+      }
+    }
+
+    version.setCurrent(latest.version);
+    log.success(i18n.t('updateDone') + '  ' + okN + ' ok' + (failN ? ' / ' + failN + ' fail' : ''));
+    return;
+  }
+
+  const newer = validReleases.filter(function (p) {
+    return version.compareVer(p.version, current) > 0;
+  });
+
+  if (!newer.length) {
+    log.success(i18n.t('updateAlreadyLatest') + ': ' + current);
+    return;
+  }
+
+  const targets = [];
+  for (const rel of newer) {
+    for (const f of rel.files) {
+      const ftype = f.type || classify.classify(f.name);
+      if (ftype === 'installer') targets.push({ release: rel, file: f });
+    }
+  }
+
+  if (!targets.length) {
+    log.warn(i18n.t('updateNoSetup'));
+    version.setCurrent(newer[newer.length - 1].version);
+    return;
+  }
+
+  const dest = flags.d ? path.resolve(flags.d) : config.ROOT;
+  ensureDir(dest);
+
+  if (flags.check) {
+    console.log(i18n.t('updatePlan') + ':  ' + current + ' -> ' + newer[newer.length - 1].version);
+    for (const t of targets) console.log('  ' + t.release.version + '  ' + t.file.name);
+    return;
+  }
+
+  let okN = 0, failN = 0;
+  for (const t of targets) {
+    const target = path.join(dest, t.file.name);
+    if (!flags.q) log.info(t.release.version + '  ' + t.file.name);
+    try {
+      await net.downloadWithRetry(t.file.url, target);
+      okN++;
+      if (flags.run) {
+        try {
+          const runner = require('./runner');
+          await runner.runInstaller(target, t.file.name, flags);
+        } catch (err2) {
+          log.error(i18n.t('installerFailed') + ': ' + err2.message);
+        }
+      }
+    } catch (err3) {
+      failN++;
+      log.error(t.file.name + ': ' + err3.message);
+    }
+  }
+
+  version.setCurrent(newer[newer.length - 1].version);
+  log.success(i18n.t('updateDone') + '  ' + okN + ' ok' + (failN ? ' / ' + failN + ' fail' : ''));
+}
+
+function showVersion() {
+  const version = require('./version');
+  const pkgVer = version.getPkgVersion();
+  const state = version.loadState();
+
+  console.log(i18n.t('versionLabel') + ': ' + color.cyan('v' + pkgVer));
+  console.log(i18n.t('versionCurrent') + ': ' +
+    (state.current ? color.green(state.current) : color.gray(i18n.t('versionNone'))));
+
+  if (state.history && state.history.length) {
+    console.log(i18n.t('versionHistory') + ':');
+    const tail = state.history.slice(-5).reverse();
+    for (const h of tail) {
+      console.log('  ' + color.gray(h.installedAt) + '  ' + color.cyan(h.tag));
+    }
+  }
 }
 
 module.exports = {
   dispatch: dispatch, parseArgs: parseArgs,
   buildHelpText: buildHelpText, unknownCommand: unknownCommand,
   listAvailable: listAvailable, listInstalled: listInstalled,
-  searchPackages: searchPackages, pakCommand: pakCommand,
+  searchPackages: searchPackages, pakCommand: pakCommand, showVersion: showVersion,
   clearTemp: clearTemp, settings: settings, lang: lang
 };

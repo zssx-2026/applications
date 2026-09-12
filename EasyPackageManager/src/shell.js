@@ -15,6 +15,8 @@ function run() {
       terminal: true
     });
 
+    global.__epm_rl = rl;
+
     console.log('EasyPackageManager');
     console.log(i18n.t('helpUsage') + ': help / exit');
     console.log(i18n.t('helpMultiLine'));
@@ -45,7 +47,11 @@ function run() {
       rl.prompt();
     });
 
-    rl.on('close', function () { proc.unregister(); resolve(); });
+    rl.on('close', function () {
+      global.__epm_rl = null;
+      proc.unregister();
+      resolve();
+    });
   });
 }
 
