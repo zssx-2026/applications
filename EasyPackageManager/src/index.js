@@ -13,7 +13,9 @@ module.exports = {
   net: require('./net'),
   pak: require('./pak'),
   proc: require('./process'),
+  runner: require('./runner'),
   i18n: require('./i18n'),
   langfetch: require('./langfetch'),
+  updateLib: require('./update-lib'),
   utils: require('./utils')
 };

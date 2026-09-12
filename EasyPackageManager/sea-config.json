@@ -1,0 +1,7 @@
+{
+  "main": "dist/bundle.js",
+  "output": "dist/epm.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false
+}

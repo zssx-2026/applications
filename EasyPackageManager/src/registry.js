@@ -14,7 +14,12 @@ function load() {
   } catch (_) { return { version: 1, packages: {} }; }
 }
 
-function save(d) { fs.mkdirSync(path.dirname(file()), { recursive: true }); fs.writeFileSync(file(), JSON.stringify(d, null, 2) + '\n', 'utf8'); }
+function save(d) {
+  try {
+    fs.mkdirSync(path.dirname(file()), { recursive: true });
+    fs.writeFileSync(file(), JSON.stringify(d, null, 2) + '\n', 'utf8');
+  } catch (_) {}
+}
 
 function get(n) { return load().packages[n] || null; }
 function has(n) { return Boolean(get(n)); }

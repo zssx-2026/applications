@@ -4,7 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const platform = require('./platform');
 
-const ROOT = path.resolve(__dirname, '..');
+function detectRoot() {
+  const exec = process.execPath || '';
+  const isNodeExe = /(^|[\\/])node(\.exe)?$/i.test(exec);
+  if (isNodeExe) return path.resolve(__dirname, '..');
+  return path.dirname(exec);
+}
+
+const ROOT = detectRoot();
 const SETTINGS_FILE = path.join(ROOT, 'settings.json');
 
 const DEFAULTS = {
@@ -19,9 +26,22 @@ const DEFAULTS = {
   'github.apiBase': 'https://api.github.com'
 };
 
-function loadRaw() { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); } catch (_) { return {}; } }
-function saveRaw(d) { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(d, null, 2) + '\n', 'utf8'); }
-function resolvePath(p) { if (!p) return p; return path.isAbsolute(p) ? p : path.resolve(ROOT, p); }
+function loadRaw() {
+  try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); }
+  catch (_) { return {}; }
+}
+
+function saveRaw(d) {
+  try {
+    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(d, null, 2) + '\n', 'utf8');
+  } catch (_) {}
+}
+
+function resolvePath(p) {
+  if (!p) return p;
+  return path.isAbsolute(p) ? p : path.resolve(ROOT, p);
+}
 
 function get(key) {
   const raw = loadRaw();
@@ -60,16 +80,10 @@ function list() {
   const raw = loadRaw();
   let i18n = null;
   try { i18n = require('./i18n'); } catch (_) {}
-
   let langDisplay;
-  if (raw.lang) {
-    langDisplay = raw.lang;
-  } else if (i18n) {
-    langDisplay = i18n.current() + ' (' + i18n.t('langFollowSystem') + ')';
-  } else {
-    langDisplay = '';
-  }
-
+  if (raw.lang) langDisplay = raw.lang;
+  else if (i18n) langDisplay = i18n.current() + ' (' + i18n.t('langFollowSystem') + ')';
+  else langDisplay = '';
   return {
     tempdir: get('tempdir'),
     installdir: get('installdir'),

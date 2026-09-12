@@ -1,15 +1,9 @@
-# EasyPackageManager English language file
-# Format: key="value"   Supports \" \n \t \\ escapes
-# name must match the filename
-
 name="en"
 displayName="English"
 
-# ── Unknown command
 unknownCommand="Unknown or unavailable command"
 inputEpmHelp=", run \"epm help\" to see available commands"
 
-# ── Help
 helpTitle="EasyPackageManager (epm) - Cross-platform package manager"
 helpPlatform="Platform"
 helpUsage="Usage"
@@ -48,7 +42,6 @@ helpCmdHelp="Show this help"
 helpMultiLine="Multi-line command, e.g. { list; install foo }"
 helpExitHint="Terminate all EPM processes and exit"
 
-# ── Lists
 noAvailablePkgs="No available packages"
 runGetHint="Run \"epm get\" to fetch the latest list from GitHub"
 availablePkgs="Available packages"
@@ -60,18 +53,15 @@ currentPlatformMark="<- current platform"
 noFiles="(no files)"
 publishedAt="published at"
 
-# ── Temp
 tempDirNotExist="Cache directory does not exist"
 tempCleared="Cleared"
 itemsDeleted="items"
 tempUsage="Usage: epm temp clear"
 
-# ── Settings
 settingsHeader="Current settings"
 settingUpdated="Set"
 langFollowSystem="follow system"
 
-# ── Fetch
 fetchingPkgs="Fetching package list from GitHub..."
 fetchPkgsOK="Fetched"
 fetchPkgsFail="Fetch failed"
@@ -79,7 +69,6 @@ fetchPkgsCached="Using cached list"
 pkgsUnit="packages"
 noReleasesGot="No releases fetched"
 
-# ── Language
 langCurrent="Current language"
 langAvailable="Available languages"
 langGetting="Downloading language files from GitHub..."
@@ -89,11 +78,9 @@ langSetOK="Switched language to"
 langNotFound="Language file not found"
 langUsage="Usage: epm lang [list|get|set <name>]"
 
-# ── Exit
 exitKilled="Terminated"
 processUnit="EPM process(es)"
 
-# ── Install
 installingPkg="Installing"
 installingFile="File"
 installingPlatform="Platform"
@@ -129,7 +116,6 @@ downloadStep="Downloading"
 downloadDone="Download complete"
 downloadSize="Size"
 
-# ── pak
 pakHeader="Local packages"
 pakEmpty="No local packages"
 pakListUsage="Usage: epm pak [list|add|del]"
@@ -144,12 +130,22 @@ pakFile="File"
 pakUrl="URL"
 pakAddedAt="Added at"
 
-# ── pak validation
 nameEmpty="Name cannot be empty"
 nameTooLong="Name too long (max 64 chars)"
 nameMustStartWithLetter="Name must start with a letter"
-nameInvalidChars="Name can only contain letters, digits, dots, hyphens, underscores, and must not end with . - _"
-nameReserved="This name is a reserved command word, please use another"
+nameInvalidChars="Name can only contain letters, digits, dots, hyphens, underscores"
+nameReserved="This name is a reserved command word"
 urlEmpty="URL cannot be empty"
 urlInvalid="Invalid URL"
 urlProtocol="URL must start with http:// or https://"
+
+runningInstaller="Running installer"
+installerDone="Installer completed"
+installerExitCode="Installer exit code"
+installerFailed="Failed to run installer"
+keepInstaller="Keep installer file"
+installerRemoved="Removed installer file"
+removeDownloadedInstaller="Remove downloaded installer"
+installerUninstallHint="Note: installer-type packages are not auto-uninstalled."
+fileExistsSkipDownload="File exists, skip download"
+fileNotRun="Not running, kept downloaded file"

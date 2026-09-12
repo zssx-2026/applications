@@ -8,14 +8,13 @@ const { ensureDir } = require('./utils');
 
 function pidFile() {
   const dir = config.get('tempdir');
-  ensureDir(dir);
+  try { ensureDir(dir); } catch (_) {}
   return path.join(dir, '.epm.pids.json');
 }
 
 function isAlive(pid) {
   if (!pid || pid <= 0) return false;
-  try { process.kill(pid, 0); return true; }
-  catch (_) { return false; }
+  try { process.kill(pid, 0); return true; } catch (_) { return false; }
 }
 
 function readPids() {
@@ -79,9 +78,8 @@ function exitAll(code) {
   if (killed.length) {
     let i18n;
     try { i18n = require('./i18n'); } catch (_) {}
-    const msg = i18n
-      ? i18n.t('exitKilled') + ' ' + killed.length + ' ' + i18n.t('processUnit')
-      : 'Terminated ' + killed.length + ' process(es)';
+    const msg = i18n ? i18n.t('exitKilled') + ' ' + killed.length + ' ' + i18n.t('processUnit')
+                     : 'Terminated ' + killed.length + ' process(es)';
     console.log('\u001b[36mi\u001b[0m ' + msg);
   }
   process.exit(code);

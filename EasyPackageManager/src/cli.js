@@ -2,8 +2,6 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execFileSync } = require('child_process');
-
 const config = require('./config');
 const platform = require('./platform');
 const registry = require('./registry');
@@ -34,6 +32,9 @@ function buildHelpText() {
     '      -f <file>                        ' + t('helpCmdInstallF'),
     '      -p <path>                        ' + t('helpCmdInstallP'),
     '      -q                               ' + t('helpCmdInstallQ'),
+    '      -k                               保留安装包',
+    '      --no-run                         只下载不运行',
+    '      -d <dir>                         下载到指定目录',
     '  epm download <name>[@file]           ' + t('helpCmdDownload'),
     '      -n <filename>                    ' + t('helpCmdDownloadN'),
     '  epm uninstall <name>                 ' + t('helpCmdUninstall'),
@@ -72,8 +73,11 @@ function parseArgs(argv) {
   const args = { _: [], flags: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '-q' || a === '--force') args.flags[a === '-q' ? 'q' : 'force'] = true;
-    else if (a === '-p' || a === '-n' || a === '-f') {
+    if (a === '-q') args.flags.q = true;
+    else if (a === '-k') args.flags.k = true;
+    else if (a === '--force') args.flags.force = true;
+    else if (a === '--no-run') args.flags['no-run'] = true;
+    else if (a === '-p' || a === '-n' || a === '-f' || a === '-d') {
       const key = a.slice(1);
       const next = argv[i + 1];
       if (next !== undefined && !(next.length > 1 && next[0] === '-')) { args.flags[key] = next; i++; }
@@ -100,94 +104,49 @@ const KNOWN_COMMANDS = [
 
 async function dispatch(argv) {
   const args = parseArgs(argv);
-
   if (!args._.length) { console.log(buildHelpText()); return; }
-
   const cmd = args._[0];
   const sub = args._[1];
-
   if (KNOWN_COMMANDS.indexOf(cmd) === -1) { unknownCommand(cmd); return; }
-
   switch (cmd) {
     case 'run':
-    case 'cli':
-      return require('./shell').run();
-
+    case 'cli': return require('./shell').run();
     case 'list':
       if (sub === 'install' || sub === 'installed') return listInstalled();
       return listAvailable();
-
-    case 'search':
-      return searchPackages(args._.slice(1).join(' '));
-
-    case 'get':
-      return getFromGithub();
-
-    case 'add':
-      return installer.addPackage(args._[1], args._[2], args.flags);
-
+    case 'search': return searchPackages(args._.slice(1).join(' '));
+    case 'get': return getFromGithub();
+    case 'add': return installer.addPackage(args._[1], args._[2], args.flags);
     case 'install':
-    case 'i':
-      return installer.install(args._[1], args.flags);
-
-    case 'download':
-      return downloader.download(args._[1], args.flags);
-
+    case 'i': return installer.install(args._[1], args.flags);
+    case 'download': return downloader.download(args._[1], args.flags);
     case 'uninstall':
     case 'remove':
-    case 'rm':
-      return installer.uninstall(args._[1]);
-
-    case 'redadd':
-      return installer.registerDisk(args._[1], args._[2]);
-
-    case 'redel':
-      return installer.unregister(args._[1]);
-
-    case 'pak':
-      return pakCommand(args._.slice(1), args.flags);
-
+    case 'rm': return installer.uninstall(args._[1]);
+    case 'redadd': return installer.registerDisk(args._[1], args._[2]);
+    case 'redel': return installer.unregister(args._[1]);
+    case 'pak': return pakCommand(args._.slice(1), args.flags);
     case 'temp':
       if (sub === 'clear') return clearTemp();
-      log.error(i18n.t('tempUsage'));
-      return;
-
-    case 'set':
-      return settings(args._.slice(1));
-
-    case 'lang':
-      return lang(args._.slice(1));
-
+      log.error(i18n.t('tempUsage')); return;
+    case 'set': return settings(args._.slice(1));
+    case 'lang': return lang(args._.slice(1));
     case 'clear':
-    case 'cls':
-      clearScreen();
-      return;
-
-    case 'update':
-      return runUpdate();
-
+    case 'cls': clearScreen(); return;
+    case 'update': return runUpdate();
     case 'exit':
-    case 'quit':
-      return proc.exitAll(0);
-
-    case 'help':
-      console.log(buildHelpText());
-      return;
+    case 'quit': return proc.exitAll(0);
+    case 'help': console.log(buildHelpText()); return;
   }
 }
 
 async function pakCommand(rest, flags) {
   if (!rest.length || rest[0] === 'list') return pakList();
-
   const sub = rest[0];
-
   if (sub === 'add') {
-    const name = rest[1];
-    const url = rest[2];
+    const name = rest[1], url = rest[2];
     if (!name || !url) { log.error(i18n.t('pakAddUsage')); return; }
-
     const r = pak.add(name, url, flags);
-
     if (!r.ok) {
       const key = r.error;
       const msg = i18n.t(key) !== key ? i18n.t(key) : key;
@@ -195,34 +154,26 @@ async function pakCommand(rest, flags) {
       if (key === 'nameExists') log.warn(i18n.t('pakForceHint'));
       return;
     }
-
     log.success(i18n.t('pakAdded') + ': ' + r.pkg.name);
     log.info(i18n.t('pakFile') + ': ' + r.pkg.file);
     log.info(i18n.t('pakUrl') + ': ' + r.pkg.url);
     return;
   }
-
   if (sub === 'del' || sub === 'delete' || sub === 'remove' || sub === 'rm') {
     const name = rest[1];
     if (!name) { log.error(i18n.t('pakDelUsage')); return; }
-
     const r = pak.remove(name);
-
     if (!r.ok) { log.error(i18n.t('pakNotFound') + ': ' + name); return; }
-
     log.success(i18n.t('pakRemoved') + ': ' + name);
     return;
   }
-
   log.error(i18n.t('pakListUsage'));
 }
 
 function pakList() {
   const all = pak.list();
-
   console.log(i18n.t('pakHeader') + ':  (' + all.length + ')');
   if (!all.length) { log.info(i18n.t('pakEmpty')); return; }
-
   console.log('');
   for (const p of all) {
     console.log('  ' + color.cyan(p.name));
@@ -236,32 +187,17 @@ function pakList() {
 function listAvailable() {
   const pkgs = sources.listAvailable();
   const st = sources.stats();
-
-  if (!pkgs.length) {
-    log.info(i18n.t('noAvailablePkgs'));
-    log.info(i18n.t('runGetHint'));
-    return;
-  }
-
-  console.log(i18n.t('availablePkgs') + ':  ' +
-    st.releaseCount + ' releases, ' +
-    st.pakCount + ' local, ' +
-    st.fileCount + ' files (' + formatBytes(st.totalSize) + ')');
+  if (!pkgs.length) { log.info(i18n.t('noAvailablePkgs')); log.info(i18n.t('runGetHint')); return; }
+  console.log(i18n.t('availablePkgs') + ':  ' + st.releaseCount + ' releases, ' + st.pakCount + ' local, ' + st.fileCount + ' files (' + formatBytes(st.totalSize) + ')');
   if (st.updatedAt) console.log(color.gray('  updated at ' + st.updatedAt));
   console.log('');
-
   for (const p of pkgs) {
     const isPak = p.type === 'pak';
     const flag = p.prerelease ? color.yellow(' ' + i18n.t('prereleaseTag')) : '';
     const local = isPak ? color.magenta(' ' + i18n.t('localTag')) : '';
-    const fileCount = p.files.length;
-
-    console.log('  ' + color.cyan(p.name) + ' ' +
-      color.gray('(' + fileCount + ' files)') + flag + local);
-
+    console.log('  ' + color.cyan(p.name) + ' ' + color.gray('(' + p.files.length + ' files)') + flag + local);
     if (p.publishedAt) console.log('    ' + color.gray(i18n.t('publishedAt') + ' ' + p.publishedAt));
     if (!p.files.length) { console.log('    ' + color.dim(i18n.t('noFiles'))); continue; }
-
     const picked = platform.pickAsset(p.files, p.name);
     for (const f of p.files) {
       const mark = (picked && f.name === picked.name) ? color.green(' ' + i18n.t('currentPlatformMark')) : '';
@@ -276,7 +212,6 @@ function searchPackages(keyword) {
   if (!keyword) { log.error('用法: epm search <keyword>'); return; }
   const hits = sources.search(keyword);
   if (!hits.length) { log.info(i18n.t('noAvailablePkgs')); return; }
-
   console.log('搜索 "' + keyword + '":  ' + hits.length + ' releases');
   for (const p of hits) {
     const local = p.type === 'pak' ? color.magenta(' ' + i18n.t('localTag')) : '';
@@ -284,8 +219,7 @@ function searchPackages(keyword) {
     console.log('  ' + color.cyan(p.name) + local);
     for (const f of p.files) {
       const lower = f.name.toLowerCase();
-      const hl = lower.indexOf(String(keyword).toLowerCase()) !== -1
-        ? color.yellow(f.name) : f.name;
+      const hl = lower.indexOf(String(keyword).toLowerCase()) !== -1 ? color.yellow(f.name) : f.name;
       const size = f.size ? color.gray(' (' + formatBytes(f.size) + ')') : '';
       console.log('      - ' + hl + size);
     }
@@ -333,14 +267,12 @@ async function settings(rest) {
 async function lang(rest) {
   if (!rest.length || rest[0] === 'list') return langList();
   const sub = rest[0];
-
   if (sub === 'get') {
     log.step(i18n.t('langGetting'));
     const { fetchLangs } = require('./langfetch');
     await fetchLangs({});
     return;
   }
-
   if (sub === 'set') {
     const name = rest[1];
     if (!name) { console.log(i18n.t('langUsage')); return; }
@@ -351,7 +283,6 @@ async function lang(rest) {
     log.success(i18n.t('langSetOK') + ': ' + name);
     return;
   }
-
   log.error(i18n.t('langUsage'));
 }
 
@@ -370,15 +301,12 @@ function langList() {
 }
 
 async function getFromGithub() {
-  const root = path.resolve(__dirname, '..');
-  const updateScript = path.join(root, 'update.js');
   log.step(i18n.t('fetchingPkgs'));
   try {
-    execFileSync(process.execPath, [updateScript, '--force'], { stdio: 'inherit', cwd: root });
-    const pkgs = sources.listAvailable();
-    const st = sources.stats();
-    if (!pkgs.length) { log.warn(i18n.t('noReleasesGot')); return; }
-    log.success(i18n.t('fetchPkgsOK') + ' ' + st.releaseCount + ' releases, ' + st.fileCount + ' files');
+    const { fetchAll } = require('./update-lib');
+    const r = await fetchAll({});
+    if (!r.releases.length) { log.warn(i18n.t('noReleasesGot')); return; }
+    log.success(i18n.t('fetchPkgsOK') + ' ' + r.releases.length + ' releases, ' + r.fileCount + ' files');
   } catch (err) {
     log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
     const cached = sources.listAvailable();
@@ -387,9 +315,9 @@ async function getFromGithub() {
 }
 
 async function runUpdate() {
-  const root = path.resolve(__dirname, '..');
-  const updateScript = path.join(root, 'update.js');
-  execFileSync(process.execPath, [updateScript, '--force'], { stdio: 'inherit', cwd: root });
+  const { fetchAll } = require('./update-lib');
+  const r = await fetchAll({});
+  log.success(i18n.t('fetchPkgsOK') + ' ' + r.releases.length + ' releases, ' + r.fileCount + ' files');
 }
 
 module.exports = {

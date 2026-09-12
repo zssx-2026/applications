@@ -28,10 +28,11 @@ function archTokens() {
 
 function defaultInstallDir() {
   if (isWindows()) {
-    const pf = process.env.ProgramFiles || process.env.PROGRAMFILES || 'C:\\Program Files';
-    return path.join(pf, 'EasyPackageManager');
+    const local = process.env.LOCALAPPDATA || process.env.APPDATA ||
+                  path.join(os.homedir(), 'AppData', 'Local');
+    return path.join(local, 'EasyPackageManager');
   }
-  if (isMac()) return path.join(os.homedir(), 'Applications', 'EasyPackageManager');
+  if (isMac()) return path.join(os.homedir(), 'Library', 'Application Support', 'EasyPackageManager');
   return path.join(os.homedir(), '.local', 'share', 'EasyPackageManager');
 }
 
@@ -60,12 +61,10 @@ function pickAsset(files, pkgName) {
       if (hit) return hit;
     }
   }
-
   for (const pt of ptokens) {
     const hit = files.find(function (f) { return f.name.toLowerCase().indexOf(pt) !== -1; });
     if (hit) return hit;
   }
-
   const universal = files.find(function (f) { return /\b(universal|all|noarch|any)\b/i.test(f.name); });
   if (universal) return universal;
 
@@ -79,7 +78,6 @@ function pickAsset(files, pkgName) {
     return true;
   });
   if (notMine.length) return notMine[0];
-
   return files[0];
 }
 

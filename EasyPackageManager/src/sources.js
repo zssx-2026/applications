@@ -2,11 +2,11 @@
 
 const path = require('path');
 const platform = require('./platform');
+const config = require('./config');
 const pak = require('./pak');
 const { readJson } = require('./utils');
 
-const ROOT = path.resolve(__dirname, '..');
-const URL_FILE = path.join(ROOT, 'url.json');
+const URL_FILE = path.join(config.ROOT, 'url.json');
 
 function loadUrls() { return readJson(URL_FILE, {}) || {}; }
 
@@ -16,22 +16,14 @@ function listAvailable() {
 
   const githubPkgs = releases.map(function (r) {
     return {
-      name: r.tag || r.name,
-      version: r.tag,
-      releaseName: r.name || r.tag,
-      url: r.htmlUrl,
-      publishedAt: r.publishedAt,
-      prerelease: Boolean(r.prerelease),
-      draft: Boolean(r.draft),
+      name: r.tag || r.name, version: r.tag, releaseName: r.name || r.tag,
+      url: r.htmlUrl, publishedAt: r.publishedAt,
+      prerelease: Boolean(r.prerelease), draft: Boolean(r.draft),
       type: 'github',
       files: (r.assets || []).map(function (a) {
         return {
-          name: a.name,
-          url: a.url,
-          size: a.size,
-          contentType: a.contentType,
-          downloadCount: a.downloadCount,
-          updatedAt: a.updatedAt
+          name: a.name, url: a.url, size: a.size,
+          contentType: a.contentType, downloadCount: a.downloadCount, updatedAt: a.updatedAt
         };
       })
     };
@@ -39,26 +31,16 @@ function listAvailable() {
 
   const pakPkgs = pak.list().map(function (p) {
     return {
-      name: p.name,
-      version: null,
-      releaseName: p.name,
-      url: p.url,
-      publishedAt: p.addedAt || null,
-      prerelease: false,
-      draft: false,
-      type: 'pak',
-      files: [{
-        name: p.file || p.name,
-        url: p.url,
-        size: null
-      }]
+      name: p.name, version: null, releaseName: p.name,
+      url: p.url, publishedAt: p.addedAt || null,
+      prerelease: false, draft: false, type: 'pak',
+      files: [{ name: p.file || p.name, url: p.url, size: null }]
     };
   });
 
   const map = new Map();
   for (const p of githubPkgs) map.set(p.name, p);
   for (const p of pakPkgs) map.set(p.name, p);
-
   return Array.from(map.values());
 }
 
@@ -75,6 +57,24 @@ function findFuzzy(name) {
   for (const p of all) if (p.name.toLowerCase() === lower) return p;
   for (const p of all) if (p.name.toLowerCase().indexOf(lower) === 0) return p;
   for (const p of all) if (p.name.toLowerCase().indexOf(lower) !== -1) return p;
+  return null;
+}
+
+function findByFile(name) {
+  if (!name) return null;
+  const lower = String(name).toLowerCase();
+  const all = listAvailable();
+
+  for (const p of all) {
+    for (const f of p.files) {
+      if (f.name.toLowerCase() === lower) return { pkg: p, file: f };
+    }
+  }
+  for (const p of all) {
+    for (const f of p.files) {
+      if (f.name.toLowerCase().indexOf(lower) !== -1) return { pkg: p, file: f };
+    }
+  }
   return null;
 }
 
@@ -105,24 +105,23 @@ function stats() {
 
 function search(keyword) {
   const lower = String(keyword || '').toLowerCase();
-  const all = listAvailable();
-  if (!lower) return all;
-  return all.filter(function (p) {
-    if (p.name.toLowerCase().indexOf(lower) !== -1) return true;
-    for (const f of p.files) {
-      if (f.name.toLowerCase().indexOf(lower) !== -1) return true;
+  if (!lower) return listAvailable();
+  const hits = [];
+  for (const p of listAvailable()) {
+    const nameMatch = p.name.toLowerCase().indexOf(lower) !== -1;
+    const matched = p.files.filter(function (f) {
+      return f.name.toLowerCase().indexOf(lower) !== -1;
+    });
+    if (matched.length || nameMatch) {
+      hits.push(Object.assign({}, p, { files: matched.length ? matched : p.files }));
     }
-    return false;
-  });
+  }
+  return hits;
 }
 
 module.exports = {
-  loadUrls: loadUrls,
-  listAvailable: listAvailable,
-  find: find,
-  findFuzzy: findFuzzy,
+  loadUrls: loadUrls, listAvailable: listAvailable,
+  find: find, findFuzzy: findFuzzy, findByFile: findByFile,
   pickForCurrentPlatform: pickForCurrentPlatform,
-  stats: stats,
-  search: search,
-  URL_FILE: URL_FILE
+  stats: stats, search: search, URL_FILE: URL_FILE
 };

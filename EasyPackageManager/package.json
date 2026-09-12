@@ -1,20 +1,36 @@
 {
   "name": "easy-package-manager",
   "version": "1.0.0",
-  "description": "EasyPackageManager (epm) - 跨平台从 GitHub 下载、安装、管理软件包",
+  "description": "EasyPackageManager (epm)",
   "main": "src/index.js",
-  "bin": { "epm": "bin/epm.js" },
-  "files": ["bin", "src", "lang", "update.js", "settings.json", "url.json", "pak.json"],
-  "engines": { "node": ">=16.0.0" },
-  "os": ["win32", "darwin", "linux"],
+  "bin": {
+    "epm": "bin/epm.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "lang",
+    "update.js",
+    "settings.json",
+    "url.json",
+    "pak.json"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
   "scripts": {
     "start": "node bin/epm.js",
-    "run": "node bin/epm.js run",
-    "cli": "node bin/epm.js cli",
     "get": "node bin/epm.js get",
-    "list": "node bin/epm.js list",
-    "lang": "node bin/epm.js lang"
+    "list": "node bin/epm.js list"
   },
   "license": "MIT",
-  "dependencies": {}
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6"
+  }
 }

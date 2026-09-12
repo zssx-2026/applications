@@ -10,7 +10,6 @@ const { ensureDir: ensureDir } = require('./utils');
 function getRetries() { return Number(config.get('network.retries')) || 4; }
 function getRetryDelay() { return Number(config.get('network.retryDelayMs')) || 800; }
 function getTimeout() { return Number(config.get('network.timeoutMs')) || 30000; }
-
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 function authHeaders(extra) {
@@ -40,9 +39,7 @@ function requestOnce(url, options) {
     }, function (res) {
       const chunks = [];
       res.on('data', function (c) { chunks.push(c); });
-      res.on('end', function () {
-        resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) });
-      });
+      res.on('end', function () { resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }); });
       res.on('error', reject);
     });
     req.on('error', reject);
@@ -55,11 +52,9 @@ async function httpGetWithRetry(url, options, redirect) {
   options = options || {};
   redirect = redirect || 0;
   if (redirect > 6) throw new Error('Too many redirects: ' + url);
-
   const retries = getRetries();
   const baseDelay = getRetryDelay();
   let lastErr = null;
-
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await requestOnce(url, options);
@@ -71,8 +66,7 @@ async function httpGetWithRetry(url, options, redirect) {
         if (attempt < retries) {
           const wait = baseDelay * Math.pow(2, attempt);
           console.log('\u001b[33m!\u001b[0m HTTP ' + res.statusCode + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-          await sleep(wait);
-          continue;
+          await sleep(wait); continue;
         }
         throw lastErr;
       }
@@ -82,8 +76,7 @@ async function httpGetWithRetry(url, options, redirect) {
       if (attempt < retries) {
         const wait = baseDelay * Math.pow(2, attempt);
         console.log('\u001b[33m!\u001b[0m ' + err.message + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-        await sleep(wait);
-        continue;
+        await sleep(wait); continue;
       }
       throw err;
     }
@@ -91,35 +84,68 @@ async function httpGetWithRetry(url, options, redirect) {
   throw lastErr || new Error('Request failed');
 }
 
+function downloadOnce(url, dest, redirect, options) {
+  if (redirect === undefined) redirect = 0;
+  options = options || {};
+
+  return new Promise(function (resolve, reject) {
+    if (redirect > 6) return reject(new Error('Too many redirects: ' + url));
+    let u;
+    try { u = new URL(url); }
+    catch (e) { return reject(new Error('Invalid URL: ' + url)); }
+
+    const lib = u.protocol === 'http:' ? http : https;
+    const req = lib.request({
+      protocol: u.protocol, hostname: u.hostname,
+      port: u.port || undefined,
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers: Object.assign(authHeaders(), options.headers || {})
+    }, function (res) {
+      if ([301,302,303,307,308].indexOf(res.statusCode) >= 0 && res.headers.location) {
+        res.resume();
+        const next = new URL(res.headers.location, url).toString();
+        return resolve(downloadOnce(next, dest, redirect + 1, options));
+      }
+      if (res.statusCode >= 400) {
+        res.resume();
+        return reject(new Error('HTTP ' + res.statusCode + ': ' + url));
+      }
+
+      ensureDir(path.dirname(dest));
+      const ws = fs.createWriteStream(dest);
+      let bytes = 0;
+      res.on('data', function (c) { bytes += c.length; });
+      res.pipe(ws);
+      ws.on('finish', function () {
+        if (bytes === 0) return reject(new Error('Downloaded 0 bytes: ' + url));
+        resolve(dest);
+      });
+      ws.on('error', reject);
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.setTimeout(600000, function () { req.destroy(new Error('Timeout')); });
+    req.end();
+  });
+}
+
 async function downloadWithRetry(url, dest, options) {
   options = options || {};
   const retries = getRetries();
   const baseDelay = getRetryDelay();
   let lastErr = null;
-
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await requestOnce(url, options);
-      if (res.statusCode >= 400) {
-        if (res.statusCode >= 500 && attempt < retries) {
-          lastErr = new Error('HTTP ' + res.statusCode);
-          const wait = baseDelay * Math.pow(2, attempt);
-          console.log('\u001b[33m!\u001b[0m HTTP ' + res.statusCode + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-          await sleep(wait);
-          continue;
-        }
-        throw new Error('HTTP ' + res.statusCode + ': ' + url);
-      }
-      ensureDir(path.dirname(dest));
-      fs.writeFileSync(dest, res.body);
-      return dest;
+      return await downloadOnce(url, dest, 0, options);
     } catch (err) {
       lastErr = err;
+      try { fs.unlinkSync(dest); } catch (_) {}
       if (attempt < retries) {
         const wait = baseDelay * Math.pow(2, attempt);
         console.log('\u001b[33m!\u001b[0m ' + err.message + ', retry in ' + wait + 'ms (' + (attempt + 1) + '/' + retries + ')');
-        await sleep(wait);
-        continue;
+        await sleep(wait); continue;
       }
       throw err;
     }
@@ -127,4 +153,9 @@ async function downloadWithRetry(url, dest, options) {
   throw lastErr || new Error('Download failed');
 }
 
-module.exports = { authHeaders: authHeaders, httpGetWithRetry: httpGetWithRetry, downloadWithRetry: downloadWithRetry, sleep: sleep };
+module.exports = {
+  authHeaders: authHeaders,
+  httpGetWithRetry: httpGetWithRetry,
+  downloadWithRetry: downloadWithRetry,
+  sleep: sleep
+};

@@ -1,15 +1,9 @@
-# EasyPackageManager 中文语言文件
-# 格式: key="value"   支持 \" \n \t \\ 转义
-# name 必须与文件名一致
-
 name="cn"
 displayName="简体中文"
 
-# ── 未知命令
 unknownCommand="未知或不可用的命令"
 inputEpmHelp="，输入epm help查看帮助"
 
-# ── 帮助
 helpTitle="EasyPackageManager (epm) - 跨平台软件包管理器"
 helpPlatform="平台"
 helpUsage="用法"
@@ -48,7 +42,6 @@ helpCmdHelp="显示此帮助"
 helpMultiLine="多行命令，例: { list; install foo }"
 helpExitHint="终止所有 EPM 进程并退出"
 
-# ── 列表
 noAvailablePkgs="没有可用的包"
 runGetHint="运行 \"epm get\" 从 GitHub 拉取最新列表"
 availablePkgs="可用的包"
@@ -60,18 +53,15 @@ currentPlatformMark="← 当前平台"
 noFiles="（无文件）"
 publishedAt="发布于"
 
-# ── 缓存
 tempDirNotExist="缓存目录不存在"
 tempCleared="已清空"
 itemsDeleted="项"
 tempUsage="用法: epm temp clear"
 
-# ── 设置
 settingsHeader="当前设置"
 settingUpdated="已设置"
 langFollowSystem="跟随系统"
 
-# ── 拉取
 fetchingPkgs="从 GitHub 拉取可用包列表..."
 fetchPkgsOK="已获取"
 fetchPkgsFail="拉取失败"
@@ -79,7 +69,6 @@ fetchPkgsCached="使用缓存列表"
 pkgsUnit="个包"
 noReleasesGot="未获取到任何 release"
 
-# ── 语言
 langCurrent="当前语言"
 langAvailable="可用语言"
 langGetting="正在从 GitHub 获取语言文件..."
@@ -89,11 +78,9 @@ langSetOK="已切换到语言"
 langNotFound="语言文件不存在"
 langUsage="用法: epm lang [list|get|set <name>]"
 
-# ── 退出
 exitKilled="已终止"
 processUnit="个 EPM 进程"
 
-# ── 安装
 installingPkg="安装"
 installingFile="文件"
 installingPlatform="平台"
@@ -129,7 +116,6 @@ downloadStep="下载"
 downloadDone="下载完成"
 downloadSize="大小"
 
-# ── pak（本地包）
 pakHeader="本地包"
 pakEmpty="没有本地包"
 pakListUsage="用法: epm pak [list|add|del]"
@@ -144,7 +130,6 @@ pakFile="文件"
 pakUrl="地址"
 pakAddedAt="添加于"
 
-# ── pak 校验错误
 nameEmpty="名称不能为空"
 nameTooLong="名称过长（最多 64 字符）"
 nameMustStartWithLetter="名称必须以字母开头"
@@ -153,3 +138,14 @@ nameReserved="该名称是命令保留字，请换一个"
 urlEmpty="URL 不能为空"
 urlInvalid="URL 格式无效"
 urlProtocol="URL 必须以 http:// 或 https:// 开头"
+
+runningInstaller="运行安装程序"
+installerDone="安装程序已完成"
+installerExitCode="安装程序退出码"
+installerFailed="运行安装程序失败"
+keepInstaller="保留安装包"
+installerRemoved="已删除安装包"
+removeDownloadedInstaller="是否删除已下载的安装包"
+installerUninstallHint="提示：安装程序类型的包不会自动卸载，请在系统中卸载或删除安装目录"
+fileExistsSkipDownload="文件已存在，跳过下载"
+fileNotRun="不运行，仅保留下载"

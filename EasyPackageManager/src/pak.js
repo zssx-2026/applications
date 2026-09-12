@@ -2,15 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const config = require('./config');
 
-const ROOT = path.resolve(__dirname, '..');
-const PAK_FILE = path.join(ROOT, 'pak.json');
+const PAK_FILE = path.join(config.ROOT, 'pak.json');
 
 const RESERVED = [
   'epm', 'pak', 'help', 'list', 'install', 'i', 'add', 'del', 'delete',
   'update', 'exit', 'quit', 'clear', 'set', 'lang', 'get', 'search',
-  'download', 'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp',
-  'run', 'cli'
+  'download', 'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp', 'run', 'cli'
 ];
 
 function empty() { return { version: 1, updatedAt: null, packages: {} }; }
@@ -26,14 +25,15 @@ function load() {
 function save(d) {
   d.version = d.version || 1;
   d.updatedAt = new Date().toISOString();
-  fs.writeFileSync(PAK_FILE, JSON.stringify(d, null, 2) + '\n', 'utf8');
+  try {
+    fs.mkdirSync(path.dirname(PAK_FILE), { recursive: true });
+    fs.writeFileSync(PAK_FILE, JSON.stringify(d, null, 2) + '\n', 'utf8');
+  } catch (_) {}
   return d;
 }
 
 function list() {
-  return Object.values(load().packages).sort(function (a, b) {
-    return String(a.name).localeCompare(String(b.name));
-  });
+  return Object.values(load().packages).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
 }
 
 function get(name) { return load().packages[name] || null; }
@@ -60,40 +60,24 @@ function validateUrl(url) {
     const u = new URL(url);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, error: 'urlProtocol' };
     return { ok: true, url: u.toString() };
-  } catch (_) {
-    return { ok: false, error: 'urlInvalid' };
-  }
+  } catch (_) { return { ok: false, error: 'urlInvalid' }; }
 }
 
 function add(name, url, flags) {
   flags = flags || {};
-
   const nc = validateName(name);
   if (!nc.ok) return { ok: false, error: nc.error, kind: 'name' };
   name = nc.name;
-
   const uc = validateUrl(url);
   if (!uc.ok) return { ok: false, error: uc.error, kind: 'url' };
   url = uc.url;
-
   const data = load();
-
-  if (data.packages[name] && !flags.force) {
-    return { ok: false, error: 'nameExists', kind: 'name' };
-  }
-
+  if (data.packages[name] && !flags.force) return { ok: false, error: 'nameExists', kind: 'name' };
   let fileName = '';
   try { fileName = path.basename(new URL(url).pathname); } catch (_) {}
   if (!fileName) fileName = name;
-
-  data.packages[name] = {
-    name: name,
-    url: url,
-    file: fileName,
-    addedAt: new Date().toISOString()
-  };
+  data.packages[name] = { name: name, url: url, file: fileName, addedAt: new Date().toISOString() };
   save(data);
-
   return { ok: true, pkg: data.packages[name] };
 }
 
@@ -108,16 +92,8 @@ function remove(name) {
 }
 
 module.exports = {
-  PAK_FILE: PAK_FILE,
-  empty: empty,
-  load: load,
-  save: save,
-  list: list,
-  get: get,
-  has: has,
-  validateName: validateName,
-  validateUrl: validateUrl,
-  add: add,
-  remove: remove,
-  RESERVED: RESERVED
+  PAK_FILE: PAK_FILE, empty: empty, load: load, save: save,
+  list: list, get: get, has: has,
+  validateName: validateName, validateUrl: validateUrl,
+  add: add, remove: remove, RESERVED: RESERVED
 };

@@ -9,12 +9,21 @@ process.on('exit', function () { try { proc.unregister(); } catch (_) {} });
 process.on('SIGINT', function () { proc.exitAll(0); });
 process.on('SIGTERM', function () { proc.exitAll(0); });
 
-const { dispatch } = require('../src/cli');
+const args = process.argv.slice(2);
 
-dispatch(process.argv.slice(2))
-  .then(function () { proc.unregister(); })
-  .catch(function (err) {
-    console.error('\u001b[31mx\u001b[0m ' + (err && err.stack ? err.stack : String(err)));
+async function main() {
+  if (args.length === 0) {
+    await require('../src/shell').run();
     proc.unregister();
-    process.exit(1);
-  });
+    return;
+  }
+  const { dispatch } = require('../src/cli');
+  await dispatch(args);
+  proc.unregister();
+}
+
+main().catch(function (err) {
+  console.error('\u001b[31mx\u001b[0m ' + (err && err.stack ? err.stack : String(err)));
+  try { proc.unregister(); } catch (_) {}
+  process.exit(1);
+});

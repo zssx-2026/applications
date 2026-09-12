@@ -24,7 +24,6 @@ function run() {
     rl.on('line', async function (line) {
       const raw = line.trim();
       if (!raw) { rl.prompt(); return; }
-
       if (raw === 'exit' || raw === 'quit') { rl.close(); proc.exitAll(0); return; }
 
       let commands;

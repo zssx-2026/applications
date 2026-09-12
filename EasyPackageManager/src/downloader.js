@@ -14,12 +14,13 @@ async function download(name, flags) {
   let pkgName = name;
   let wantFile = flags.f || null;
   const at = name.indexOf('@');
-  if (at !== -1) {
-    pkgName = name.slice(0, at);
-    wantFile = name.slice(at + 1) || wantFile;
-  }
+  if (at !== -1) { pkgName = name.slice(0, at); wantFile = name.slice(at + 1) || wantFile; }
 
-  const pkg = sources.find(pkgName);
+  let pkg = sources.find(pkgName);
+  if (!pkg && !wantFile) {
+    const hit = sources.findByFile(pkgName);
+    if (hit) { pkg = hit.pkg; wantFile = hit.file.name; }
+  }
   if (!pkg) throw new Error(i18n.t('pkgNotFound') + ': ' + pkgName);
   if (!pkg.files || !pkg.files.length) throw new Error(pkgName + ' ' + i18n.t('noFilesInPkg'));
 
@@ -27,7 +28,8 @@ async function download(name, flags) {
   if (wantFile) {
     asset = pkg.files.find(function (f) { return f.name === wantFile; });
     if (!asset) {
-      throw new Error(i18n.t('noFileInPkg') + ' ' + pkgName + ': ' + wantFile + '\n  ' + i18n.t('availableFiles') + ': ' + pkg.files.map(function (f) { return f.name; }).join(', '));
+      throw new Error(i18n.t('noFileInPkg') + ' ' + pkgName + ': ' + wantFile + '\n  ' +
+        i18n.t('availableFiles') + ': ' + pkg.files.map(function (f) { return f.name; }).join(', '));
     }
   } else {
     asset = platform.pickAsset(pkg.files, pkgName);
