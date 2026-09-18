@@ -43,7 +43,9 @@ function requestOnce(url, options) {
     }, function (res) {
       const chunks = [];
       res.on('data', function (c) { chunks.push(c); });
-      res.on('end', function () { resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }); });
+      res.on('end', function () {
+        resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) });
+      });
       res.on('error', reject);
     });
     req.on('error', reject);
@@ -90,17 +92,24 @@ async function httpGetWithRetry(url, options, redirect) {
   throw lastErr || new Error('Request failed');
 }
 
+/* ══════════════════════════════════════════════ 下载（不直接输出进度） */
+
 function downloadOnce(url, dest, redirect, options) {
   if (redirect === undefined) redirect = 0;
   options = options || {};
 
   return new Promise(function (resolve, reject) {
     if (redirect > 6) return reject(new Error('Too many redirects: ' + url));
+    if (options.task && options.task.aborted) {
+      return reject(new Error('Aborted: ' + url));
+    }
+
     let u;
-    try { u = new URL(url); }
-    catch (e) { return reject(new Error('Invalid URL: ' + url)); }
+    try { u = new URL(url); } catch (e) { return reject(new Error('Invalid URL: ' + url)); }
 
     const lib = u.protocol === 'http:' ? http : https;
+    let currentReq = null;
+
     const req = lib.request({
       protocol: u.protocol, hostname: u.hostname,
       port: u.port || undefined,
@@ -120,16 +129,42 @@ function downloadOnce(url, dest, redirect, options) {
 
       ensureDir(path.dirname(dest));
       const ws = fs.createWriteStream(dest);
+
+      const total = parseInt(res.headers['content-length'] || '0', 10) || 0;
       let bytes = 0;
-      res.on('data', function (c) { bytes += c.length; });
+
+      // 只更新 task，不直接输出
+      if (options.task) {
+        options.task.total = total;
+        options.task.bytes = 0;
+      }
+
+      res.on('data', function (c) {
+        bytes += c.length;
+        if (options.task) options.task.bytes = bytes;
+      });
+
       res.pipe(ws);
+
       ws.on('finish', function () {
         if (bytes === 0) return reject(new Error('Downloaded 0 bytes: ' + url));
+        if (options.task) {
+          options.task.total = total || bytes;
+          options.task.bytes = bytes;
+        }
         resolve(dest);
       });
       ws.on('error', reject);
       res.on('error', reject);
     });
+
+    currentReq = req;
+
+    if (options.task) {
+      options.task.abortFn = function () {
+        try { if (currentReq) currentReq.destroy(new Error('Aborted')); } catch (_) {}
+      };
+    }
 
     req.on('error', reject);
     req.setTimeout(600000, function () { req.destroy(new Error('Timeout')); });
@@ -148,6 +183,7 @@ async function downloadWithRetry(url, dest, options) {
     } catch (err) {
       lastErr = err;
       try { fs.unlinkSync(dest); } catch (_) {}
+      if (err && /Aborted/.test(err.message)) throw err;
       if (attempt < retries) {
         retryLog(t('logRetryErr') + ' ' + err.message, attempt, retries);
         await sleep(baseDelay * Math.pow(2, attempt)); continue;

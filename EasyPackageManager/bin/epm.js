@@ -10,6 +10,7 @@ try { process.on('SIGINT', function () {}); } catch (_) {}
 try { process.on('SIGTERM', function () {}); } catch (_) {}
 try { process.on('SIGHUP', function () {}); } catch (_) {}
 try { process.on('SIGBREAK', function () {}); } catch (_) {}
+try { process.on('SIGQUIT', function () {}); } catch (_) {}
 
 process.on('exit', function () { try { proc.unregister(); } catch (_) {} });
 

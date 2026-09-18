@@ -87,7 +87,7 @@ async function install(name, version, flags) {
         log.error(i18n.t('installerFailed') + ': ' + err.message);
       }
 
-      const keep = flags.k ? true : await runner.askYesNo(i18n.t('keepInstaller'), false);
+      const keep = !!flags.k;
       if (!keep) {
         try { fs.unlinkSync(dest); } catch (_) {}
         log.info(i18n.t('installerRemoved'));
@@ -222,8 +222,7 @@ async function addPackage(name, url, flags) {
     } catch (err) {
       log.error(i18n.t('installerFailed') + ': ' + err.message);
     }
-    const keep = flags.k ? true : await runner.askYesNo(i18n.t('keepInstaller'), false);
-    if (!keep) { try { fs.unlinkSync(dest); } catch (_) {} }
+    if (!flags.k) { try { fs.unlinkSync(dest); } catch (_) {} }
   }
 
   registry.add(name, {
