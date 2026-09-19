@@ -28,7 +28,7 @@ async function download(name, version, flags) {
   log.step(i18n.t('downloadStep') + ' ' + pkg.name + ' v' + target.version);
   if (target.size) log.info(i18n.t('downloadSize') + ': ' + formatBytes(target.size));
   ensureDir(path.dirname(dest));
-  await net.downloadWithRetry(target.url, dest);
+  await net.downloadWithRetry(target.url, dest, { expectedSize: target.size });
   log.success(i18n.t('downloadDone') + ': ' + dest);
 }
 

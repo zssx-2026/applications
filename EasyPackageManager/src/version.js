@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
-const VERSION_FILE = path.join(config.ROOT, '.epm-versions.json');
+const VERSION_FILE = config.get('versionfile');
 
 function parseVer(v) {
   if (!v) return [0, 0, 0, ''];

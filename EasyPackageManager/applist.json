@@ -1,0 +1,343 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-19T02:58:11.804Z",
+  "count": 14,
+  "stats": {
+    "pkgCount": 14,
+    "releaseCount": 2,
+    "fileCount": 18,
+    "updatedAt": "2026-09-19T02:58:11.787Z"
+  },
+  "packages": [
+    {
+      "name": "ARCHPRV",
+      "type": "setup",
+      "company": "null",
+      "latest": {
+        "version": "4.54",
+        "tag": "application1",
+        "fileName": "archprv4.54_x64_setup.exe",
+        "size": 4527080,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/archprv4.54_x64_setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "4.54",
+          "tag": "application1",
+          "fileName": "archprv4.54_x64_setup.exe",
+          "size": 4527080,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/archprv4.54_x64_setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "blurautoclicker",
+      "type": "port",
+      "company": "none",
+      "latest": {
+        "version": "1.8.7",
+        "tag": "application1",
+        "fileName": "BlurAutoClicker.exe",
+        "size": 19166720,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/BlurAutoClicker.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "1.8.7",
+          "tag": "application1",
+          "fileName": "BlurAutoClicker.exe",
+          "size": 19166720,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/BlurAutoClicker.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "dgpro",
+      "type": "setup",
+      "company": "diskgenius",
+      "latest": {
+        "version": "6.0.0.1631",
+        "tag": "application1",
+        "fileName": "DiskGeniusPro_x64_Setup.exe",
+        "size": 32787578,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/DiskGeniusPro_x64_Setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "6.0.0.1631",
+          "tag": "application1",
+          "fileName": "DiskGeniusPro_x64_Setup.exe",
+          "size": 32787578,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/DiskGeniusPro_x64_Setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "fastcopypro",
+      "type": "port",
+      "company": "null",
+      "latest": {
+        "version": "5.11.3",
+        "tag": "application1",
+        "fileName": "FastCopy.Pro.5.11.3.exe",
+        "size": 1160512,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/FastCopy.Pro.5.11.3.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "5.11.3",
+          "tag": "application1",
+          "fileName": "FastCopy.Pro.5.11.3.exe",
+          "size": 1160512,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/FastCopy.Pro.5.11.3.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "fastgithub",
+      "type": "setup",
+      "company": "fastgithub",
+      "latest": {
+        "version": "1.6.4",
+        "tag": "application1",
+        "fileName": "Fastgithub_x64_Setup.exe",
+        "size": 22760609,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/Fastgithub_x64_Setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "1.6.4",
+          "tag": "application1",
+          "fileName": "Fastgithub_x64_Setup.exe",
+          "size": 22760609,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/Fastgithub_x64_Setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "freearc",
+      "type": "setup",
+      "company": "Bulat",
+      "latest": {
+        "version": "0.67",
+        "tag": "application1",
+        "fileName": "FreeArc_x64_Setup.exe",
+        "size": 13665731,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/FreeArc_x64_Setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "0.67",
+          "tag": "application1",
+          "fileName": "FreeArc_x64_Setup.exe",
+          "size": 13665731,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/FreeArc_x64_Setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "githubdesktop",
+      "type": "setup",
+      "company": "null",
+      "latest": {
+        "version": "3.5.8",
+        "tag": "application1",
+        "fileName": "GitHubDesktop-Windows-x64_setup.exe",
+        "size": 188492800,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/GitHubDesktop-Windows-x64_setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "3.5.8",
+          "tag": "application1",
+          "fileName": "GitHubDesktop-Windows-x64_setup.exe",
+          "size": 188492800,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/GitHubDesktop-Windows-x64_setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "IDEA",
+      "type": "setup",
+      "company": "JetBrains",
+      "latest": {
+        "version": "2026.2.2",
+        "tag": "application1",
+        "fileName": "idea-2026.2.2.exe",
+        "size": 1182846496,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/idea-2026.2.2.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "2026.2.2",
+          "tag": "application1",
+          "fileName": "idea-2026.2.2.exe",
+          "size": 1182846496,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/idea-2026.2.2.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "idman",
+      "type": "setup",
+      "company": "InternetDownloadManager",
+      "latest": {
+        "version": "6.42",
+        "tag": "application1",
+        "fileName": "IDM.6.42_x64_setup.exe",
+        "size": 10174190,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/IDM.6.42_x64_setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "6.42",
+          "tag": "application1",
+          "fileName": "IDM.6.42_x64_setup.exe",
+          "size": 10174190,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/IDM.6.42_x64_setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "lanzoud",
+      "type": "setup",
+      "company": "null",
+      "latest": {
+        "version": "0.6.1",
+        "tag": "application1",
+        "fileName": "LanzouDesktop_x64_Setup.exe",
+        "size": 129636163,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/LanzouDesktop_x64_Setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "0.6.1",
+          "tag": "application1",
+          "fileName": "LanzouDesktop_x64_Setup.exe",
+          "size": 129636163,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/LanzouDesktop_x64_Setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "LMMS",
+      "type": "setup",
+      "company": "LMMS",
+      "latest": {
+        "version": "1.2.2",
+        "tag": "application1",
+        "fileName": "lmms-1.2.2-winx64_setup.exe",
+        "size": 36829951,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/lmms-1.2.2-winx64_setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "1.2.2",
+          "tag": "application1",
+          "fileName": "lmms-1.2.2-winx64_setup.exe",
+          "size": 36829951,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/lmms-1.2.2-winx64_setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "resource_hacker",
+      "type": "setup",
+      "company": "Angus",
+      "latest": {
+        "version": "5.67",
+        "tag": "application1",
+        "fileName": "ResourceHacker.exe",
+        "size": 5436416,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/ResourceHacker.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "5.67",
+          "tag": "application1",
+          "fileName": "ResourceHacker.exe",
+          "size": 5436416,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/ResourceHacker.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "tiez",
+      "type": "setup",
+      "company": "TieZ",
+      "latest": {
+        "version": "0.3.3",
+        "tag": "application1",
+        "fileName": "TieZ_0.3.3_x64-setup.exe",
+        "size": 4872596,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application1/TieZ_0.3.3_x64-setup.exe",
+        "publishedAt": "2026-09-11T23:18:09Z"
+      },
+      "versions": [
+        {
+          "version": "0.3.3",
+          "tag": "application1",
+          "fileName": "TieZ_0.3.3_x64-setup.exe",
+          "size": 4872596,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/TieZ_0.3.3_x64-setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "VMWare_WP",
+      "type": "setup",
+      "company": "Boardcom",
+      "latest": {
+        "version": "26H2",
+        "tag": "application2",
+        "fileName": "VMware.Workstation.Pro.26H1_Setup.exe",
+        "size": 289515688,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware.Workstation.Pro.26H1_Setup.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "25H2",
+          "tag": "application1",
+          "fileName": "VMWare.Workstation.Pro.25H2_x64_Setup.exe",
+          "size": 236499220,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application1/VMWare.Workstation.Pro.25H2_x64_Setup.exe",
+          "publishedAt": "2026-09-11T23:18:09Z"
+        },
+        {
+          "version": "26H2",
+          "tag": "application2",
+          "fileName": "VMware.Workstation.Pro.26H1_Setup.exe",
+          "size": 289515688,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware.Workstation.Pro.26H1_Setup.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        }
+      ]
+    }
+  ]
+}

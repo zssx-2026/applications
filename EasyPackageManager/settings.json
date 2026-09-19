@@ -1,7 +1,4 @@
 {
-  "tempdir": "./.download_temp",
-  "installdir": "",
-  "registryfile": "./registry.json",
   "lang": "",
   "network": {
     "retries": 4,

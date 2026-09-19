@@ -1,5 +1,4 @@
 'use strict';
-
 module.exports = {
   cli: require('./cli'),
   config: require('./config'),
@@ -11,14 +10,22 @@ module.exports = {
   extractor: require('./extractor'),
   github: require('./github'),
   net: require('./net'),
+  dl: require('./dl'),
   pak: require('./pak'),
   proc: require('./process'),
   runner: require('./runner'),
   classify: require('./classify'),
   version: require('./version'),
+  tasks: require('./tasks'),
+  applist: require('./applist'),
+  auth: require('./auth'),
+  login: require('./login'),
+  release: require('./release'),
+  elevate: require('./elevate'),
+  selfUpdate: require('./self-update'),
   i18n: require('./i18n'),
   langfetch: require('./langfetch'),
   updateLib: require('./update-lib'),
-  tui: require('./tui'),
-  utils: require('./utils')
+  utils: require('./utils'),
+  web: require('./web')
 };

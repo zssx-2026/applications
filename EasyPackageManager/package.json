@@ -4,7 +4,7 @@
   "description": "EasyPackageManager (epm)",
   "main": "src/index.js",
   "bin": {
-    "epm": "bin/epm.js"
+    "epm": "bin/epm.js", "epmx": "bin/epmx.js"
   },
   "files": [
     "bin",

@@ -10,8 +10,8 @@ const installer = require('./installer');
 const downloader = require('./downloader');
 const pak = require('./pak');
 const proc = require('./process');
+const tasks = require('./tasks');
 const i18n = require('./i18n');
-const classify = require('./classify');
 const versionLib = require('./version');
 const { log: log, color: color, rmrf: rmrf, clearScreen: clearScreen, formatBytes: formatBytes } = require('./utils');
 
@@ -32,47 +32,37 @@ function buildHelpText() {
     '  epm list                             ' + t('helpCmdList'),
     '  epm list install                     ' + t('helpCmdListInstall'),
     '  epm search <keyword> [opts]          ' + t('helpCmdSearch'),
-    '      -a                               ' + t('helpSearchA'),
-    '      -na                              ' + t('helpSearchNA'),
-    '      -i <company>                     ' + t('helpSearchI'),
-    '      -ni <c1,c2>                      ' + t('helpSearchNI'),
-    '      -t <setup|port>                  ' + t('helpSearchT'),
-    '      -v <version>                     ' + t('helpSearchV'),
-    '      -nv <v1,v2>                      ' + t('helpSearchNV'),
-    '      -av                              ' + t('helpSearchAV'),
     '  epm get                              ' + t('helpCmdGet'),
     '  epm install <name> [version]         ' + t('helpCmdInstall'),
-    '      -q                               ' + t('helpInstallQ'),
-    '      -k                               ' + t('helpInstallK'),
-    '      --no-run                         ' + t('helpInstallNoRun'),
-    '      -d <dir>                         ' + t('helpInstallD'),
-    '  epm update [name]                    ' + t('helpCmdUpdate'),
+    '      -q / -k / --no-run / -d <dir>    install options',
+    '  epm package update [name]            ' + t('helpCmdPackageUpdate'),
     '      --check                          ' + t('helpUpdateCheck'),
+    '  epm update [--check]                 ' + t('helpCmdUpdate'),
     '  epm version [name]                   ' + t('helpCmdVersion'),
+    '  epm task list                        ' + t('helpCmdTaskList'),
+    '  epm task stop <id|all>               ' + t('helpCmdTaskStop'),
     '  epm web [start|stop|status]          ' + t('helpCmdWeb'),
     '      -p <port>                        ' + t('helpWebPort'),
-    '      -p=<port>                        ' + t('helpWebPort'),
+    '      --fg                             前台运行（默认后台）',
+    '  epm login                            ' + t('helpCmdLogin'),
+    '  epm logout                           ' + t('helpCmdLogout'),
+    '  epm release appname=X path=Y ...     ' + t('helpCmdRelease'),
     '  epm uninstall <name>                 ' + t('helpCmdUninstall'),
     '  epm add <name> <url>                 ' + t('helpCmdAdd'),
     '  epm redadd <name> <path>             ' + t('helpCmdRedadd'),
     '  epm redel <name>                     ' + t('helpCmdRedel'),
-    '  epm pak list                         ' + t('helpCmdPakList'),
-    '  epm pak add <name> <url>             ' + t('helpCmdPakAdd'),
-    '  epm pak del <name>                   ' + t('helpCmdPakDel'),
+    '  epm pak list|add|del                 ' + t('helpCmdPakList'),
     '  epm temp clear                       ' + t('helpCmdTempClear'),
     '  epm set <name> [value]               ' + t('helpCmdSet'),
     '  epm set list                         ' + t('helpCmdSetList'),
-    '  epm lang                             ' + t('helpCmdLang'),
-    '  epm lang list                        ' + t('helpCmdLangList'),
-    '  epm lang get                         ' + t('helpCmdLangGet'),
-    '  epm lang set <name>                  ' + t('helpCmdLangSet'),
+    '  epm lang [list|get|set]              ' + t('helpCmdLang'),
     '  epm clear                            ' + t('helpCmdClear'),
     '  epm exit                             ' + t('helpCmdExit'),
     '  epm help                             ' + t('helpCmdHelp'),
     '',
     t('helpShellHeader') + ':',
-    '  {}                                   ' + t('helpMultiLine'),
-    '  exit / quit                          ' + t('helpExitHint')
+    '  {}                                   多行命令，例: { list; install FreeArc }',
+    '  exit / quit                          退出'
   ].join('\n');
 }
 
@@ -86,58 +76,42 @@ function unknownCommand(cmd) {
 
 const NO_VALUE_FLAGS = ['q', 'k', 'a', 'na', 'av'];
 const MULTI_VALUE_FLAGS = ['i', 'ni', 'v', 'nv'];
-const SINGLE_VALUE_FLAGS = ['p', 'n', 'f', 'd', 't'];
+const SINGLE_VALUE_FLAGS = ['p', 'n', 'f', 'd', 't', 'port'];
 
 function parseArgs(argv) {
   const args = { _: [], flags: {}, multi: {} };
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-
     if (a === '--force') { args.flags.force = true; continue; }
     if (a === '--no-run') { args.flags['no-run'] = true; continue; }
     if (a === '--check') { args.flags.check = true; continue; }
+    if (a === '--daemon') { args.flags.daemon = true; continue; }
+    if (a === '--fg' || a === '--foreground') { args.flags.fg = true; continue; }
 
-    // 支持 -x=value
     if (a.length >= 3 && a[0] === '-' && a[1] !== '-' && a.indexOf('=') !== -1) {
       const eq = a.indexOf('=');
       const key = a.slice(1, eq);
       const value = a.slice(eq + 1);
-      if (SINGLE_VALUE_FLAGS.indexOf(key) !== -1) {
-        args.flags[key] = value;
-        continue;
-      }
+      if (SINGLE_VALUE_FLAGS.indexOf(key) !== -1) { args.flags[key] = value; continue; }
     }
 
     if (a.length >= 2 && a[0] === '-' && a[1] !== '-') {
       const key = a.slice(1);
-
-      if (NO_VALUE_FLAGS.indexOf(key) !== -1) {
-        args.flags[key] = true;
-        continue;
-      }
-
+      if (NO_VALUE_FLAGS.indexOf(key) !== -1) { args.flags[key] = true; continue; }
       if (MULTI_VALUE_FLAGS.indexOf(key) !== -1) {
         const next = argv[i + 1];
         if (next !== undefined && !(next[0] === '-' && next.length > 1)) {
           i++;
           if (!args.multi[key]) args.multi[key] = [];
-          for (const v of next.split(',')) {
-            const tt = v.trim();
-            if (tt) args.multi[key].push(tt);
-          }
+          for (const v of next.split(',')) { const tt = v.trim(); if (tt) args.multi[key].push(tt); }
         }
         continue;
       }
-
       if (SINGLE_VALUE_FLAGS.indexOf(key) !== -1) {
         const next = argv[i + 1];
-        if (next !== undefined && !(next[0] === '-' && next.length > 1)) {
-          args.flags[key] = next;
-          i++;
-        } else {
-          args.flags[key] = true;
-        }
+        if (next !== undefined && !(next[0] === '-' && next.length > 1)) { args.flags[key] = next; i++; }
+        else args.flags[key] = true;
         continue;
       }
     }
@@ -162,7 +136,8 @@ function parseArgs(argv) {
 const KNOWN_COMMANDS = [
   'cli', 'list', 'get', 'search', 'add', 'install', 'i', 'download',
   'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp', 'set',
-  'lang', 'pak', 'clear', 'cls', 'update', 'version', 'v', 'web',
+  'lang', 'pak', 'clear', 'cls', 'update', 'package', 'version', 'v',
+  'web', 'task', 'login', 'signup', 'logout', 'release',
   'exit', 'quit', 'help'
 ];
 
@@ -194,10 +169,10 @@ async function dispatch(argv) {
 
     case 'install':
     case 'i':
-      return installer.install(args._[1], args._[2], args.flags);
+      return runInstall(args);
 
     case 'download':
-      return downloader.download(args._[1], args._[2], args.flags);
+      return runDownload(args);
 
     case 'uninstall':
     case 'remove':
@@ -212,6 +187,22 @@ async function dispatch(argv) {
 
     case 'pak':
       return pakCommand(args._.slice(1), args.flags);
+
+    case 'task':
+      return taskCommand(args._.slice(1));
+
+    case 'login':
+      return require('./login').login();
+
+    case 'logout': {
+      const auth = require('./auth');
+      const r = auth.logout();
+      log[r ? 'success' : 'warn'](r ? i18n.t('logoutOK') : i18n.t('logoutNone'));
+      return;
+    }
+
+    case 'release':
+      return require('./release').release(args);
 
     case 'temp':
       if (sub === 'clear') return clearTemp();
@@ -230,8 +221,15 @@ async function dispatch(argv) {
     case 'cls':
       clearScreen(); return;
 
+    case 'package':
+      if (sub === 'update') {
+        return packageUpdate(args._.slice(2), args.flags);
+      }
+      log.error('用法: epm package update [name] [--check]');
+      return;
+
     case 'update':
-      return runUpdate(args);
+      return selfUpdate(args);
 
     case 'version':
     case 'v':
@@ -246,6 +244,54 @@ async function dispatch(argv) {
   }
 }
 
+/* ─────────────────────────────────────── self update ── */
+
+async function selfUpdate(args) {
+  return require('./self-update').updateSelf(args.flags);
+}
+
+/* ─────────────────────────────────────── package update ── */
+
+async function packageUpdate(rest, flags) {
+  const name = rest[0] || null;
+
+  log.step(i18n.t('updateFetching'));
+  try {
+    const { fetchAll } = require('./update-lib');
+    await fetchAll({});
+  } catch (err) {
+    log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
+    return;
+  }
+
+  if (flags.check) return updateCheck(name);
+
+  flags.q = true;
+
+  log.step(i18n.t('updateStart'));
+  const n = await installer.updatePackage(name, flags);
+  if (n === 0) log.success(i18n.t('updateAlreadyLatest'));
+  else log.success(i18n.t('updateDone') + '  ' + n + ' ' + i18n.t('updateUpdated'));
+}
+
+async function updateCheck(name) {
+  const inst = registry.list();
+  const targets = name ? inst.filter(function (p) { return p.name === name; }) : inst;
+  if (!targets.length) { log.info(i18n.t('noInstalledPkgs')); return; }
+
+  let count = 0;
+  for (const t of targets) {
+    const pkg = sources.find(t.name);
+    if (!pkg || !pkg.latest) continue;
+    if (versionLib.compareVer(pkg.latest.version, t.version) > 0) {
+      console.log('  ' + color.cyan(t.name) + '  v' + t.version + ' -> v' + pkg.latest.version);
+      count++;
+    }
+  }
+  if (count === 0) log.success(i18n.t('updateAlreadyLatest'));
+  else console.log('  ' + i18n.t('updatePlan') + ': ' + count);
+}
+
 /* ─────────────────────────────────────── web ── */
 
 async function webCommand(rest, flags) {
@@ -254,7 +300,7 @@ async function webCommand(rest, flags) {
 
   if (sub === 'stop') {
     const r = await web.stop();
-    if (r.ok) log.success(i18n.t('webStopped'));
+    if (r.ok) log.success(i18n.t('webStopped') + ' (PID ' + r.pid + ')');
     else log.warn(i18n.t('webNotRunning'));
     return;
   }
@@ -262,30 +308,155 @@ async function webCommand(rest, flags) {
   if (sub === 'status') {
     const s = web.status();
     if (s.running) {
-      log.info(i18n.t('webRunning') + ' ' + i18n.t('webPortLabel') + ' ' + s.port);
-      console.log('  http://localhost:' + s.port + '/');
+      log.info(i18n.t('webRunning') + '  ' + i18n.t('webPortLabel') + ' ' + s.port + '  PID ' + s.pid);
+      console.log('  ' + color.cyan('http://localhost:' + s.port + '/'));
     } else {
       log.info(i18n.t('webNotRunning'));
     }
     return;
   }
 
-  // 默认 start
-  log.step(i18n.t('webStarting'));
-  const port = flags.p || 3800;
-  const r = await web.start({ port: port });
+  const port = flags.p || flags.port || 7632;
+
+  // 守护进程：由 startBackground 通过 spawn 启动，独立运行
+  if (flags.daemon) {
+    const r = await web.start({ port: port });
+    if (r.ok) {
+      web.writePid({ pid: process.pid, port: r.port, host: r.host || '127.0.0.1' });
+      global.__epm_keepAlive = true;
+    } else if (r.error === 'alreadyRunning') {
+      // 端口已被占用，直接退出
+    }
+    return;
+  }
+
+  // 前台（--fg）
+  if (flags.fg) {
+    log.step(i18n.t('webStarting'));
+    const r = await web.start({ port: port });
+    if (r.ok) {
+      web.writePid({ pid: process.pid, port: r.port, host: r.host || '127.0.0.1' });
+      log.success(i18n.t('webStarted') + '  ' + i18n.t('webPortLabel') + ' ' + r.port);
+      console.log('  ' + color.cyan('http://localhost:' + r.port + '/'));
+      console.log('  ' + color.gray(i18n.t('webStopHint')));
+    } else if (r.error === 'alreadyRunning') {
+      log.warn(i18n.t('webAlreadyRunning') + ' ' + i18n.t('webPortLabel') + ' ' + r.port);
+    } else {
+      log.error(i18n.t('webStartFailed') + ': ' + (r.message || r.error));
+    }
+    return;
+  }
+
+  // 后台（默认）
+  log.step(i18n.t('webStartingBg'));
+  const r = await web.startBackground({ port: port });
 
   if (r.ok) {
-    log.success(i18n.t('webStarted') + ' ' + i18n.t('webPortLabel') + ' ' + r.port);
-    console.log('  http://localhost:' + r.port + '/');
+    log.success(i18n.t('webStartedBg') + '  ' + i18n.t('webPortLabel') + ' ' + r.port + '  PID ' + r.pid);
+    console.log('  ' + color.cyan('http://localhost:' + r.port + '/'));
     console.log('  ' + color.gray(i18n.t('webStopHint')));
   } else if (r.error === 'alreadyRunning') {
-    log.warn(i18n.t('webAlreadyRunning') + ' ' + i18n.t('webPortLabel') + ' ' + r.port);
+    log.warn(i18n.t('webAlreadyRunning') + '  ' + i18n.t('webPortLabel') + ' ' + r.port);
   } else if (r.error === 'invalidPort') {
     log.error(i18n.t('webInvalidPort') + ': ' + port);
+  } else if (r.error === 'timeout') {
+    log.error(i18n.t('webStartFailed') + ': timeout');
   } else {
     log.error(i18n.t('webStartFailed') + ': ' + (r.message || r.error));
   }
+}
+
+/* ─────────────────────────────────────── task ── */
+
+async function taskCommand(rest) {
+  const sub = rest[0] || 'list';
+
+  if (sub === 'list' || sub === 'ls') {
+    const list = tasks.list();
+    if (!list.length) { log.info(i18n.t('taskListEmpty')); return; }
+    console.log(i18n.t('taskHeader') + ':  (' + list.length + ')');
+    for (const t of list) {
+      const label = t.type === 'download' ? i18n.t('taskDownload') : i18n.t('taskInstall');
+      let line = '  #' + t.id + '  [' + label + ']  ' + t.name;
+      if (t.type === 'download' && t.total > 0) {
+        const pct = ((t.bytes / t.total) * 100).toFixed(1);
+        line += '  ' + pct + '%  ' + formatBytes(t.bytes) + ' / ' + formatBytes(t.total);
+      }
+      console.log(line);
+    }
+    return;
+  }
+
+  if (sub === 'stop' || sub === 'kill') {
+    const id = rest[1];
+    if (!id || id === 'all') {
+      const killed = tasks.abortAll();
+      log.success(i18n.t('taskStopAll') + '  (' + killed.length + ')');
+      return;
+    }
+    const r = tasks.abort(id);
+    if (!r.ok) { log.error(i18n.t('taskNotFound') + ': #' + id); return; }
+    log.success(i18n.t('taskStopped') + ': #' + r.task.id + '  ' + r.task.name);
+    return;
+  }
+
+  log.error(i18n.t('taskUsage'));
+}
+
+/* ─────────────────────────────────────── install ── */
+
+function splitNames(raw) {
+  return String(raw || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
+async function runInstall(args) {
+  const raw = args._[1];
+  if (!raw) throw new Error(i18n.t('installUsage'));
+  const version = args._[2] || null;
+  const names = splitNames(raw);
+
+  if (names.length <= 1) {
+    return installer.install(names[0] || raw, version, args.flags);
+  }
+
+  const total = names.length;
+  console.log(i18n.t('installMultiple') + ':  ' + total);
+  console.log('');
+
+  let okN = 0, failN = 0;
+  for (let i = 0; i < total; i++) {
+    const n = names[i];
+    console.log(color.cyan('[' + (i + 1) + '/' + total + '] ') + color.bold(n));
+    try { await installer.install(n, version, args.flags); okN++; }
+    catch (err) { failN++; log.error(n + ': ' + err.message); }
+    console.log('');
+  }
+  log.success(i18n.t('installBatchDone') + '  ' + okN + ' ok' + (failN ? ' / ' + failN + ' fail' : ''));
+}
+
+async function runDownload(args) {
+  const raw = args._[1];
+  if (!raw) throw new Error(i18n.t('downloadUsage'));
+  const version = args._[2] || null;
+  const names = splitNames(raw);
+
+  if (names.length <= 1) {
+    return downloader.download(names[0] || raw, version, args.flags);
+  }
+
+  const total = names.length;
+  console.log(i18n.t('downloadMultiple') + ':  ' + total);
+  console.log('');
+
+  let okN = 0, failN = 0;
+  for (let i = 0; i < total; i++) {
+    const n = names[i];
+    console.log(color.cyan('[' + (i + 1) + '/' + total + '] ') + color.bold(n));
+    try { await downloader.download(n, version, args.flags); okN++; }
+    catch (err) { failN++; log.error(n + ': ' + err.message); }
+    console.log('');
+  }
+  log.success(i18n.t('downloadBatchDone') + '  ' + okN + ' ok' + (failN ? ' / ' + failN + ' fail' : ''));
 }
 
 /* ─────────────────────────────────────── list ── */
@@ -293,10 +464,6 @@ async function webCommand(rest, flags) {
 function listAvailable() {
   const pkgs = sources.listPackages();
   const st = sources.stats();
-
-  // 保持 applist.json 与当前状态同步
-  try { require('./applist').save(); } catch (_) {}
-
   if (!pkgs.length) {
     log.info(i18n.t('noAvailablePkgs'));
     log.info(i18n.t('runGetHint'));
@@ -309,14 +476,22 @@ function listAvailable() {
   if (st.updatedAt) console.log(color.gray('  ' + i18n.t('updatedAt') + ' ' + st.updatedAt));
   console.log('');
 
-  for (const pkg of pkgs) {
-    const co = (pkg.company && pkg.company !== 'null') ? color.gray('  company=' + pkg.company) : '';
-    const lat = pkg.latest;
-    console.log('  ' + color.cyan(pkg.name) + '  ' + typeBadge(pkg.type) + co);
-    console.log('      v' + lat.version + '  ' + lat.fileName + '  ' +
-      (lat.size ? color.gray('(' + formatBytes(lat.size) + ')') : ''));
-    if (pkg.versions.length > 1) {
-      console.log('      ' + color.gray('(' + pkg.versions.length + ' ' + i18n.t('unitVersions') + ')'));
+  for (let i = 0; i < pkgs.length; i++) {
+    const pkg = pkgs[i];
+    const isLast = i === pkgs.length - 1;
+    const branch = isLast ? '└─ ' : '├─ ';
+    const co = (pkg.company && pkg.company !== 'null') ? color.gray('  ' + pkg.company) : '';
+    console.log(branch + color.cyan(pkg.name) + '  ' + typeBadge(pkg.type) + co);
+
+    const vs = pkg.versions;
+    const pad = isLast ? '   ' : '│  ';
+    for (let j = 0; j < vs.length; j++) {
+      const v = vs[j];
+      const vLast = j === vs.length - 1;
+      const vb = vLast ? '└─ ' : '├─ ';
+      const size = v.size ? color.gray(' (' + formatBytes(v.size) + ')') : '';
+      const tag = (v === pkg.latest) ? color.green(' *') : '';
+      console.log(pad + vb + 'v' + v.version + '  ' + v.fileName + size + tag);
     }
   }
 }
@@ -349,7 +524,6 @@ function searchPackages(args) {
   const allVersions = Boolean(args.flags.av);
 
   const hits = [];
-
   for (const pkg of all) {
     if (type && pkg.type !== type) continue;
 
@@ -369,39 +543,25 @@ function searchPackages(args) {
     }
 
     if (text) {
-      let match = false;
-      if (fullWord) match = pkg.name.toLowerCase() === lowerText;
-      else match = pkg.name.toLowerCase().indexOf(lowerText) !== -1;
-      if (!match) continue;
+      const m = fullWord ? pkg.name.toLowerCase() === lowerText
+                         : pkg.name.toLowerCase().indexOf(lowerText) !== -1;
+      if (!m) continue;
     }
 
-    let matchedVersions = pkg.versions.slice();
-    if (versions.length) {
-      matchedVersions = matchedVersions.filter(function (v) {
-        return versions.indexOf(v.version) !== -1;
-      });
-    }
-    if (exclVersions.length) {
-      matchedVersions = matchedVersions.filter(function (v) {
-        return exclVersions.indexOf(v.version) === -1;
-      });
-    }
-    if (!matchedVersions.length) continue;
+    let mv = pkg.versions.slice();
+    if (versions.length) mv = mv.filter(function (v) { return versions.indexOf(v.version) !== -1; });
+    if (exclVersions.length) mv = mv.filter(function (v) { return exclVersions.indexOf(v.version) === -1; });
+    if (!mv.length) continue;
 
     hits.push(Object.assign({}, pkg, {
-      versions: allVersions ? matchedVersions : [matchedVersions[matchedVersions.length - 1]],
-      latest: matchedVersions[matchedVersions.length - 1]
+      versions: allVersions ? mv : [mv[mv.length - 1]],
+      latest: mv[mv.length - 1]
     }));
   }
 
-  if (!hits.length) {
-    log.info(i18n.t('noAvailablePkgs'));
-    return;
-  }
+  if (!hits.length) { log.info(i18n.t('noAvailablePkgs')); return; }
 
-  const head = text
-    ? i18n.t('searchHeader') + ' "' + text + '"'
-    : i18n.t('filterHeader');
+  const head = text ? i18n.t('searchHeader') + ' "' + text + '"' : i18n.t('filterHeader');
   console.log(head + ':  ' + hits.length + ' ' + i18n.t('unitPackages'));
 
   for (const p of hits) {
@@ -424,58 +584,13 @@ async function getFromGithub() {
     const r = await fetchAll({});
     if (!r.releases.length) { log.warn(i18n.t('noReleasesGot')); return; }
     log.success(i18n.t('fetchPkgsOK') + ' ' + r.releases.length + ' ' + i18n.t('unitReleases'));
-
-    // 保存 applist.json
     try {
-      const applist = require('./applist');
-      const f = applist.save();
+      const f = require('./applist').save();
       console.log(color.gray('  ' + i18n.t('applistSaved') + ': ' + f));
     } catch (_) {}
   } catch (err) {
     log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
   }
-}
-
-/* ─────────────────────────────────────── update ── */
-
-async function runUpdate(args) {
-  const name = args._[1] || null;
-
-  log.step(i18n.t('updateFetching'));
-  try {
-    const { fetchAll } = require('./update-lib');
-    await fetchAll({});
-  } catch (err) {
-    log.error(i18n.t('fetchPkgsFail') + ': ' + err.message);
-    return;
-  }
-
-  if (args.flags.check) return updateCheck(name);
-
-  args.flags.q = true;
-
-  log.step(i18n.t('updateStart'));
-  const n = await installer.updatePackage(name, args.flags);
-  if (n === 0) log.success(i18n.t('updateAlreadyLatest'));
-  else log.success(i18n.t('updateDone') + '  ' + n + ' ' + i18n.t('updateUpdated'));
-}
-
-async function updateCheck(name) {
-  const inst = registry.list();
-  const targets = name ? inst.filter(function (p) { return p.name === name; }) : inst;
-  if (!targets.length) { log.info(i18n.t('noInstalledPkgs')); return; }
-
-  let count = 0;
-  for (const t of targets) {
-    const pkg = sources.find(t.name);
-    if (!pkg || !pkg.latest) continue;
-    if (versionLib.compareVer(pkg.latest.version, t.version) > 0) {
-      console.log('  ' + color.cyan(t.name) + '  v' + t.version + ' -> v' + pkg.latest.version);
-      count++;
-    }
-  }
-  if (count === 0) log.success(i18n.t('updateAlreadyLatest'));
-  else console.log('  ' + i18n.t('updatePlan') + ': ' + count);
 }
 
 /* ─────────────────────────────────────── version ── */
@@ -497,12 +612,10 @@ async function versionCommand(rest) {
   const pkg = sources.find(name);
   const reg = registry.get(name);
 
-  if (reg) {
-    console.log(color.cyan(name) + '  ' + i18n.t('versionInstalled') + ' v' + reg.version);
-  }
+  if (reg) console.log(color.cyan(name) + '  ' + i18n.t('versionInstalled') + ' v' + reg.version);
   if (pkg) {
     console.log(color.cyan(pkg.name) + '  ' + i18n.t('versionLatest') + ' v' + pkg.latest.version +
-      '  (' + pkg.versions.length + ' ' + i18n.t('unitVersions') + ')');
+      '  (' + pkg.versions.length + ')');
     console.log(i18n.t('versionAll'));
     for (const v of pkg.versions) {
       const mark = (reg && reg.version === v.version) ? color.green(' *') : '';
@@ -530,8 +643,6 @@ async function pakCommand(rest, flags) {
       return;
     }
     log.success(i18n.t('pakAdded') + ': ' + r.pkg.name);
-    log.info(i18n.t('pakFile') + ': ' + r.pkg.file);
-    log.info(i18n.t('pakUrl') + ': ' + r.pkg.url);
     return;
   }
   if (sub === 'del' || sub === 'delete' || sub === 'remove' || sub === 'rm') {
@@ -554,24 +665,21 @@ function pakList() {
     console.log('  ' + color.cyan(p.name));
     if (p.file) console.log('    ' + color.gray(i18n.t('pakFile') + ': ' + p.file));
     console.log('    ' + color.gray(i18n.t('pakUrl') + ': ' + p.url));
-    if (p.addedAt) console.log('    ' + color.dim(i18n.t('pakAddedAt') + ': ' + p.addedAt));
     console.log('');
   }
 }
 
-/* ─────────────────────────────────────── temp ── */
+/* ─────────────────────────────────────── temp / set / lang ── */
 
 function clearTemp() {
   const tempdir = config.get('tempdir');
   if (!fs.existsSync(tempdir)) { log.info(i18n.t('tempDirNotExist') + ': ' + tempdir); return; }
   const entries = fs.readdirSync(tempdir).filter(function (n) {
-    return n !== '.gitkeep' && n.indexOf('.epm.pids') !== 0;
+    return n !== '.gitkeep' && n.indexOf('.epm.pids') !== 0 && n.indexOf('.epm-web') !== 0;
   });
   for (const e of entries) rmrf(path.join(tempdir, e));
-  log.success(i18n.t('tempCleared') + ' ' + tempdir + '  (' + entries.length + ' ' + i18n.t('itemsDeleted') + ')');
+  log.success(i18n.t('tempCleared') + ' ' + tempdir + '  (' + entries.length + ')');
 }
-
-/* ─────────────────────────────────────── set ── */
 
 async function settings(rest) {
   if (!rest.length || rest[0] === 'list') {
@@ -587,8 +695,6 @@ async function settings(rest) {
   if (key === 'lang') i18n.reload();
   log.success(i18n.t('settingUpdated') + ' ' + key + ' = ' + value);
 }
-
-/* ─────────────────────────────────────── lang ── */
 
 async function lang(rest) {
   if (!rest.length || rest[0] === 'list') return langList();
@@ -635,10 +741,12 @@ module.exports = {
   listInstalled: listInstalled,
   searchPackages: searchPackages,
   pakCommand: pakCommand,
+  taskCommand: taskCommand,
   clearTemp: clearTemp,
   settings: settings,
   lang: lang,
   versionCommand: versionCommand,
-  runUpdate: runUpdate,
+  selfUpdate: selfUpdate,
+  packageUpdate: packageUpdate,
   webCommand: webCommand
 };

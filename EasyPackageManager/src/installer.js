@@ -71,7 +71,7 @@ async function install(name, version, flags) {
 
   if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) {
     if (!flags.q) log.info(i18n.t('installingDownload') + ' ' + target.url);
-    await net.downloadWithRetry(target.url, dest);
+    await net.downloadWithRetry(target.url, dest, { expectedSize: target.size });
   }
 
   if (isInstaller) {

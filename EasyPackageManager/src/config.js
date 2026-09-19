@@ -2,9 +2,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const platform = require('./platform');
 
 function detectRoot() {
+  if (process.env.EPM_ROOT) {
+    try { return path.resolve(process.env.EPM_ROOT); } catch (_) {}
+  }
   const exec = process.execPath || '';
   const isNodeExe = /(^|[\\/])node(\.exe)?$/i.test(exec);
   if (isNodeExe) return path.resolve(__dirname, '..');
@@ -12,12 +16,19 @@ function detectRoot() {
 }
 
 const ROOT = detectRoot();
+
+const DATA_DIR = process.env.EPM_HOME
+  ? path.resolve(process.env.EPM_HOME)
+  : path.join(os.homedir(), '.epm');
+
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
+
 const SETTINGS_FILE = path.join(ROOT, 'settings.json');
 
 const DEFAULTS = {
-  tempdir: './.download_temp',
+  tempdir: '',
   installdir: '',
-  registryfile: './registry.json',
+  registryfile: '',
   lang: '',
   'network.retries': 4,
   'network.retryDelayMs': 800,
@@ -40,14 +51,27 @@ function saveRaw(d) {
 
 function resolvePath(p) {
   if (!p) return p;
+  if (p === '~' || p.indexOf('~/') === 0 || p.indexOf('~\\') === 0) {
+    return path.join(os.homedir(), p.slice(1).replace(/^[\\/]/, ''));
+  }
   return path.isAbsolute(p) ? p : path.resolve(ROOT, p);
 }
 
 function get(key) {
   const raw = loadRaw();
-  if (key === 'tempdir') return resolvePath(raw.tempdir || DEFAULTS.tempdir);
-  if (key === 'installdir') return raw.installdir ? resolvePath(raw.installdir) : platform.defaultInstallDir();
-  if (key === 'registryfile') return resolvePath(raw.registryfile || DEFAULTS.registryfile);
+
+  if (key === 'tempdir') {
+    return raw.tempdir ? resolvePath(raw.tempdir) : path.join(DATA_DIR, 'temp');
+  }
+  if (key === 'installdir') {
+    return raw.installdir ? resolvePath(raw.installdir) : platform.defaultInstallDir();
+  }
+  if (key === 'registryfile') {
+    return raw.registryfile ? resolvePath(raw.registryfile) : path.join(DATA_DIR, 'registry.json');
+  }
+  if (key === 'versionfile') {
+    return path.join(DATA_DIR, 'versions.json');
+  }
   if (key === 'lang') return raw.lang || '';
   if (key === 'github.token') return (raw.github && raw.github.token) || '';
   if (key === 'github.apiBase') return (raw.github && raw.github.apiBase) || DEFAULTS['github.apiBase'];
@@ -97,4 +121,4 @@ function list() {
   };
 }
 
-module.exports = { get: get, set: set, list: list, ROOT: ROOT, SETTINGS_FILE: SETTINGS_FILE };
+module.exports = { get, set, list, ROOT, DATA_DIR, SETTINGS_FILE };

@@ -5,7 +5,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { ensureDir: ensureDir } = require('./utils');
+const { ensureDir } = require('./utils');
 
 function t(key, fallback) {
   try { return require('./i18n').t(key); } catch (_) { return fallback || key; }
@@ -14,6 +14,7 @@ function t(key, fallback) {
 function getRetries() { return Number(config.get('network.retries')) || 4; }
 function getRetryDelay() { return Number(config.get('network.retryDelayMs')) || 800; }
 function getTimeout() { return Number(config.get('network.timeoutMs')) || 30000; }
+
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 function authHeaders(extra) {
@@ -28,6 +29,8 @@ function authHeaders(extra) {
   return h;
 }
 
+/* ═══════════════════ 单次 GET（收集 body） ═══════════════════ */
+
 function requestOnce(url, options) {
   options = options || {};
   return new Promise(function (resolve, reject) {
@@ -35,7 +38,8 @@ function requestOnce(url, options) {
     try { u = new URL(url); } catch (e) { return reject(new Error('Invalid URL: ' + url)); }
     const lib = u.protocol === 'http:' ? http : https;
     const req = lib.request({
-      protocol: u.protocol, hostname: u.hostname,
+      protocol: u.protocol,
+      hostname: u.hostname,
       port: u.port || undefined,
       path: u.pathname + u.search,
       method: options.method || 'GET',
@@ -58,6 +62,8 @@ function retryLog(msg, attempt, total) {
   console.log('\u001b[33m!\u001b[0m ' + msg + ' (' + (attempt + 1) + '/' + total + ')');
 }
 
+/* ═══════════════════ 带重试的 GET ═══════════════════ */
+
 async function httpGetWithRetry(url, options, redirect) {
   options = options || {};
   redirect = redirect || 0;
@@ -75,7 +81,8 @@ async function httpGetWithRetry(url, options, redirect) {
         lastErr = new Error('HTTP ' + res.statusCode + ': ' + url);
         if (attempt < retries) {
           retryLog(t('logRetryHttp') + ' HTTP ' + res.statusCode, attempt, retries);
-          await sleep(baseDelay * Math.pow(2, attempt)); continue;
+          await sleep(baseDelay * Math.pow(2, attempt));
+          continue;
         }
         throw lastErr;
       }
@@ -84,7 +91,8 @@ async function httpGetWithRetry(url, options, redirect) {
       lastErr = err;
       if (attempt < retries) {
         retryLog(t('logRetryErr') + ' ' + err.message, attempt, retries);
-        await sleep(baseDelay * Math.pow(2, attempt)); continue;
+        await sleep(baseDelay * Math.pow(2, attempt));
+        continue;
       }
       throw err;
     }
@@ -92,101 +100,35 @@ async function httpGetWithRetry(url, options, redirect) {
   throw lastErr || new Error('Request failed');
 }
 
-/* ══════════════════════════════════════════════ 下载（不直接输出进度） */
-
-function downloadOnce(url, dest, redirect, options) {
-  if (redirect === undefined) redirect = 0;
-  options = options || {};
-
-  return new Promise(function (resolve, reject) {
-    if (redirect > 6) return reject(new Error('Too many redirects: ' + url));
-    if (options.task && options.task.aborted) {
-      return reject(new Error('Aborted: ' + url));
-    }
-
-    let u;
-    try { u = new URL(url); } catch (e) { return reject(new Error('Invalid URL: ' + url)); }
-
-    const lib = u.protocol === 'http:' ? http : https;
-    let currentReq = null;
-
-    const req = lib.request({
-      protocol: u.protocol, hostname: u.hostname,
-      port: u.port || undefined,
-      path: u.pathname + u.search,
-      method: 'GET',
-      headers: Object.assign(authHeaders(), options.headers || {})
-    }, function (res) {
-      if ([301,302,303,307,308].indexOf(res.statusCode) >= 0 && res.headers.location) {
-        res.resume();
-        const next = new URL(res.headers.location, url).toString();
-        return resolve(downloadOnce(next, dest, redirect + 1, options));
-      }
-      if (res.statusCode >= 400) {
-        res.resume();
-        return reject(new Error('HTTP ' + res.statusCode + ': ' + url));
-      }
-
-      ensureDir(path.dirname(dest));
-      const ws = fs.createWriteStream(dest);
-
-      const total = parseInt(res.headers['content-length'] || '0', 10) || 0;
-      let bytes = 0;
-
-      // 只更新 task，不直接输出
-      if (options.task) {
-        options.task.total = total;
-        options.task.bytes = 0;
-      }
-
-      res.on('data', function (c) {
-        bytes += c.length;
-        if (options.task) options.task.bytes = bytes;
-      });
-
-      res.pipe(ws);
-
-      ws.on('finish', function () {
-        if (bytes === 0) return reject(new Error('Downloaded 0 bytes: ' + url));
-        if (options.task) {
-          options.task.total = total || bytes;
-          options.task.bytes = bytes;
-        }
-        resolve(dest);
-      });
-      ws.on('error', reject);
-      res.on('error', reject);
-    });
-
-    currentReq = req;
-
-    if (options.task) {
-      options.task.abortFn = function () {
-        try { if (currentReq) currentReq.destroy(new Error('Aborted')); } catch (_) {}
-      };
-    }
-
-    req.on('error', reject);
-    req.setTimeout(600000, function () { req.destroy(new Error('Timeout')); });
-    req.end();
-  });
-}
+/* ═══════════════════ 下载（委托给 dl.js） ═══════════════════ */
 
 async function downloadWithRetry(url, dest, options) {
   options = options || {};
   const retries = getRetries();
   const baseDelay = getRetryDelay();
   let lastErr = null;
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await downloadOnce(url, dest, 0, options);
+      return await require('./dl').download(url, dest, options);
     } catch (err) {
       lastErr = err;
       try { fs.unlinkSync(dest); } catch (_) {}
+      // 清理分片
+      try {
+        const dir = path.dirname(dest);
+        const base = path.basename(dest);
+        for (const f of fs.readdirSync(dir)) {
+          if (f.indexOf(base + '.part') === 0) {
+            try { fs.unlinkSync(path.join(dir, f)); } catch (_) {}
+          }
+        }
+      } catch (_) {}
       if (err && /Aborted/.test(err.message)) throw err;
       if (attempt < retries) {
         retryLog(t('logRetryErr') + ' ' + err.message, attempt, retries);
-        await sleep(baseDelay * Math.pow(2, attempt)); continue;
+        await sleep(baseDelay * Math.pow(2, attempt));
+        continue;
       }
       throw err;
     }
