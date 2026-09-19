@@ -11,8 +11,10 @@ const C = {
   reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
   red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m',
   blue: '\x1b[34m', magenta: '\x1b[35m', cyan: '\x1b[36m',
-  gray: '\x1b[90m', brightCyan: '\x1b[96m', brightWhite: '\x1b[97m',
-  brightGreen: '\x1b[92m', brightYellow: '\x1b[93m'
+  gray: '\x1b[90m',
+  brightCyan: '\x1b[96m', brightWhite: '\x1b[97m',
+  brightGreen: '\x1b[92m', brightYellow: '\x1b[93m',
+  brightBlue: '\x1b[94m', brightRed: '\x1b[91m'
 };
 
 const MAX_HISTORY = 200;
@@ -30,9 +32,7 @@ let scrollBottom = 0;
 let tickTimer = null;
 let origLog, origErr, origWarn;
 
-function vlen(s) {
-  return String(s).replace(/\x1b\[[0-9;]*m/g, '').length;
-}
+function vlen(s) { return String(s).replace(/\x1b\[[0-9;]*m/g, '').length; }
 
 function fmtSpeed(bps) {
   if (!isFinite(bps) || bps <= 0) return '0B/s';
@@ -90,7 +90,7 @@ function scrollOutput(text) {
   }
 }
 
-/* ═══════════ 底部两行 ═══════════ */
+/* ═══════════ 状态行 ═══════════ */
 
 function buildStatusLine() {
   const list = tasks.list();
@@ -98,33 +98,34 @@ function buildStatusLine() {
   const W = process.stdout.columns || 80;
   const t = list[0];
   const extra = list.length > 1 ? C.gray + ' (+' + (list.length - 1) + ')' + C.reset : '';
-  const label = t.type === 'download' ? '下载' : '安装';
 
   if (t.type === 'download') {
     const pct = t.total > 0 ? Math.min(t.bytes / t.total, 1) : 0;
+    const done = t.total > 0 && t.bytes >= t.total;
     const elapsed = Math.max(0.1, (Date.now() - t.started) / 1000);
-    const speed = t.bytes / elapsed;
-    const speedStr = fmtSpeed(speed);
+    const speed = elapsed > 0 ? t.bytes / elapsed : 0;
+    const speedStr = done ? '完成中' : fmtSpeed(speed);
     const totalStr = fmtSize(t.total);
-    const etaStr = t.total > 0 && speed > 0 ? fmtEta((t.total - t.bytes) / speed) : '--:--';
+    const etaStr = (done || speed <= 0) ? '--:--' : fmtEta((t.total - t.bytes) / speed);
     const pctStr = Math.floor(pct * 100) + '%';
 
     const head = C.brightGreen + '▼' + C.reset + ' ' +
-      C.bold + t.name + C.reset + extra + '  ' +
-      C.cyan + speedStr + C.reset + '  ' +
+      C.bold + C.brightWhite + t.name + C.reset + extra + '  ' +
+      C.brightCyan + speedStr + C.reset + '  ' +
       C.gray + 'Total:' + C.reset + C.brightWhite + totalStr + C.reset + '  ' +
       C.gray + 'ETA:' + C.reset + C.brightWhite + etaStr + C.reset + '  ' +
       C.brightYellow + pctStr + C.reset + '  ';
 
     const headLen = vlen(head);
     const barW = Math.max(8, W - headLen - 1);
-    const filled = Math.round(barW * pct);
-    const bar = C.brightGreen + '█'.repeat(filled) + C.reset;
+    const filled = done ? barW : Math.round(barW * pct);
+    const barColor = done ? C.brightYellow : C.brightGreen;
+    const bar = barColor + (done ? '▓' : '█').repeat(filled) + C.reset;
     return head + bar;
   }
   return C.yellow + '■' + C.reset + ' ' +
-    C.bold + t.name + C.reset + extra + '  ' +
-    C.yellow + '[' + label + '...]' + C.reset;
+    C.bold + C.brightWhite + t.name + C.reset + extra + '  ' +
+    C.brightYellow + '[安装中...]' + C.reset;
 }
 
 function drawBottom() {
@@ -186,10 +187,7 @@ function matchHotkey(str, i, key) {
 
 /* ═══════════ 编辑 ═══════════ */
 
-function insertStr(s) {
-  inputBuf = inputBuf.slice(0, cursorPos) + s + inputBuf.slice(cursorPos);
-  cursorPos += s.length;
-}
+function insertStr(s) { inputBuf = inputBuf.slice(0, cursorPos) + s + inputBuf.slice(cursorPos); cursorPos += s.length; }
 function backspace() {
   if (cursorPos > 0) {
     const before = Array.from(inputBuf.slice(0, cursorPos));
@@ -211,11 +209,7 @@ function deleteChar() {
 function move(d) { cursorPos = Math.max(0, Math.min(inputBuf.length, cursorPos + d)); }
 function histUp() {
   if (!history.length) return;
-  if (historyIdx < history.length - 1) {
-    historyIdx++;
-    inputBuf = history[history.length - 1 - historyIdx];
-    cursorPos = inputBuf.length;
-  }
+  if (historyIdx < history.length - 1) { historyIdx++; inputBuf = history[history.length - 1 - historyIdx]; cursorPos = inputBuf.length; }
 }
 function histDown() {
   if (historyIdx <= 0) { historyIdx = -1; inputBuf = ''; cursorPos = 0; return; }
@@ -264,7 +258,6 @@ function attachInput() {
     while (i < str.length) {
       const code = str.charCodeAt(i);
 
-      // ESC 序列
       if (code === 0x1B) {
         const hkLen = matchHotkey(str, i, hotkey);
         if (hkLen > 0) {
@@ -291,17 +284,35 @@ function attachInput() {
         continue;
       }
 
-      // 回车
       if (code === 0x0D || code === 0x0A) {
         i++;
         const cmd = inputBuf.trim();
         inputBuf = '';
         cursorPos = 0;
         if (!cmd) { drawBottom(); continue; }
+
         history.push(cmd);
         if (history.length > MAX_HISTORY) history.shift();
         historyIdx = -1;
-        scrollOutput(C.brightCyan + PROMPT + C.reset + C.brightWhite + cmd + C.reset);
+
+        // 后台异步训练（不阻塞）
+        setImmediate(function () {
+          try {
+            const model = require('./model');
+            const m = model.get();
+            const n = m.trainOnString(cmd, 0.03);
+            // 每 5 步保存一次
+            if (m.step % 5 === 0) m.save();
+          } catch (_) {}
+        });
+
+        let painted = cmd;
+        try {
+          const cli = require('./cli');
+          if (cli.highlightCmd) painted = cli.highlightCmd(cmd);
+        } catch (_) {}
+        scrollOutput(C.brightCyan + PROMPT + C.reset + painted);
+
         if (cmd === 'exit' || cmd === 'quit') {
           exiting = true;
           try {
@@ -314,6 +325,7 @@ function attachInput() {
           if (global.__epm_exitNow) global.__epm_exitNow(0);
           return;
         }
+
         handleCommand(cmd).catch(function (e) {
           scrollOutput(C.red + 'x' + C.reset + ' ' + ((e && e.message) || String(e)));
         });
@@ -321,10 +333,63 @@ function attachInput() {
         continue;
       }
 
-      // 退格
+      if (code === 0x09) {           // Tab
+        i++;
+        try {
+          const parts = inputBuf.split(/\s+/);
+          const partial = parts[parts.length - 1] || '';
+
+          // 命令名补全
+          if (parts.length === 1) {
+            const cmds = ['install', 'list', 'search', 'get', 'update',
+                          'download', 'uninstall', 'version', 'web', 'lang',
+                          'set', 'task', 'help', 'exit', 'package', 'login',
+                          'logout', 'release'];
+            const hits = cmds.filter(function (c) { return c.indexOf(partial) === 0; });
+            if (hits.length === 1 && partial.length > 0) {
+              insertStr(hits[0].slice(partial.length));
+              continue;
+            }
+          }
+
+          // 包名补全
+          if (parts.length >= 2 && partial.length > 0) {
+            const sources = require('./sources');
+            const pkgs = sources.listPackages();
+            const hits = pkgs.filter(function (p) {
+              return p.name.toLowerCase().indexOf(partial.toLowerCase()) === 0;
+            });
+            if (hits.length === 1) {
+              insertStr(hits[0].name.slice(partial.length));
+              continue;
+            }
+            // 唯一前缀 → 全补
+            if (hits.length > 1) {
+              // 找公共前缀
+              let common = hits[0].name;
+              for (let k = 1; k < hits.length; k++) {
+                let j = 0;
+                while (j < common.length && j < hits[k].name.length &&
+                       common[j].toLowerCase() === hits[k].name[j].toLowerCase()) j++;
+                common = common.slice(0, j);
+              }
+              if (common.length > partial.length) {
+                insertStr(common.slice(partial.length));
+                continue;
+              }
+            }
+          }
+
+          // 兜底：模型补全（完全隐藏）
+          const model = require('./model');
+          const added = model.complete(inputBuf);
+          if (added) insertStr(added);
+        } catch (_) {}
+        continue;
+      }
+
       if (code === 0x7F || code === 0x08) { i++; backspace(); continue; }
 
-      // 控制字符
       if (code < 0x20) {
         const hk = HOTKEY_DEFS[hotkey];
         if (hk && hk.type === 'byte' && code === hk.value) {
@@ -338,8 +403,7 @@ function attachInput() {
         i++;
         if (code === 0x03) {
           if (inputBuf.length > 0) {
-            inputBuf = '';
-            cursorPos = 0;
+            inputBuf = ''; cursorPos = 0;
             scrollOutput(C.gray + '^C  已清空输入，下载继续' + C.reset);
           } else {
             scrollOutput(C.gray + '^C  (' + hotkey.toUpperCase() + ' 中断任务)' + C.reset);
@@ -354,20 +418,15 @@ function attachInput() {
           const b = inputBuf.slice(0, cursorPos);
           const a = inputBuf.slice(cursorPos);
           const t = b.replace(/\S+\s*$/, '');
-          inputBuf = t + a;
-          cursorPos = t.length;
+          inputBuf = t + a; cursorPos = t.length;
         }
         else if (code === 0x01) cursorPos = 0;
         else if (code === 0x05) cursorPos = inputBuf.length;
         else if (code === 0x0B) inputBuf = inputBuf.slice(0, cursorPos);
-        else if (code === 0x0C) {
-          process.stdout.write('\x1b[2J');
-          setupScrollRegion();
-        }
+        else if (code === 0x0C) { process.stdout.write('\x1b[2J'); setupScrollRegion(); }
         continue;
       }
 
-      // 普通字符
       const cp = str.codePointAt(i);
       const len = cp > 0xFFFF ? 2 : 1;
       insertStr(str.slice(i, i + len));
@@ -407,7 +466,8 @@ function run() {
     scrollOutput(C.gray + '  ' +
       C.brightYellow + 'Ctrl+C' + C.reset + C.gray + ' 清空输入 · ' + C.reset +
       C.brightYellow + hk + C.reset + C.gray + ' 中断任务 · ' + C.reset +
-      C.brightYellow + 'epm set hotkey <key>' + C.reset + C.gray + ' 切换' + C.reset);
+      C.brightYellow + 'epm set hotkey <key>' + C.reset + C.gray + ' 切换 · ' + C.reset +
+      C.brightYellow + 'Tab' + C.reset + C.gray + ' 补全' + C.reset);
     scrollOutput('');
 
     setupScrollRegion();
@@ -423,6 +483,15 @@ function run() {
       drawBottom();
     });
 
+    global.__epm_addHistory = function (cmd) {
+      if (!cmd) return;
+      const s = String(cmd).trim();
+      if (!s) return;
+      history.push(s);
+      if (history.length > MAX_HISTORY) history.shift();
+      historyIdx = -1;
+    };
+
     global.__epm_cleanup = function () {
       if (tickTimer) clearInterval(tickTimer);
       if (stdinHandler) {
@@ -434,10 +503,10 @@ function run() {
       try {
         const H = process.stdout.rows || 24;
         process.stdout.write('\x1b[r');
-        process.stdout.write('\x1b[' + (H - 1) + ';1H\x1b[J');
+        process.stdout.write('\x1b[' + (H - 1) + ';1H');
+        process.stdout.write('\x1b[J');
+        process.stdout.write('\x1b[?25h\x1b[0m');
       } catch (_) {}
-      restoreScrollRegion();
-      if (process.stdout.isTTY) process.stdout.write('\x1b[?25h\x1b[0m');
       console.log = origLog;
       console.error = origErr;
       console.warn = origWarn;
@@ -447,4 +516,4 @@ function run() {
   });
 }
 
-module.exports = { run };
+module.exports = { run: run };

@@ -26,6 +26,20 @@ const color = {
   magenta: wrap(35), cyan: wrap(36), gray: wrap(90), bold: wrap(1), dim: wrap(2)
 };
 
+
+/**
+ * OSC 8 超链接：支持点击的终端里会显示为下划线链接
+ * 不支持的终端降级为普通彩色文字
+ */
+function link(text, command) {
+  const cmd = String(command || '');
+  const osc = '\x1b]8;;epm:' + encodeURIComponent(cmd) + '\x07';
+  const end = '\x1b]8;;\x07';
+  const paint = '\x1b[4;36m' + text + '\x1b[0m';
+  if (!useColor) return text;
+  return osc + paint + end;
+}
+
 const log = {
   info: function (m) { console.log(color.cyan('i') + ' ' + m); },
   success: function (m) { console.log(color.green('+') + ' ' + m); },
@@ -47,5 +61,5 @@ function clearScreen() { process.stdout.write('\u001b[2J\u001b[0;0H'); }
 module.exports = {
   ensureDir: ensureDir, rmrf: rmrf, copyDir: copyDir,
   readJson: readJson, writeJson: writeJson,
-  color: color, log: log, formatBytes: formatBytes, clearScreen: clearScreen
+  color: color, log: log, formatBytes: formatBytes, clearScreen: clearScreen, link: link
 };

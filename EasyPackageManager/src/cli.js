@@ -13,12 +13,66 @@ const proc = require('./process');
 const tasks = require('./tasks');
 const i18n = require('./i18n');
 const versionLib = require('./version');
-const { log: log, color: color, rmrf: rmrf, clearScreen: clearScreen, formatBytes: formatBytes } = require('./utils');
+const { log: log, color: color, rmrf: rmrf, clearScreen: clearScreen, formatBytes: formatBytes, link: link } = require('./utils');
 
 function typeBadge(type) {
   if (type === 'setup') return color.yellow('[setup]');
   if (type === 'port') return color.green('[port]');
   return color.gray('[' + (type || '?') + ']');
+}
+
+
+/* ═══════════════ 彩色命令前缀 ═══════════════ */
+
+const PC = {
+  reset: '\x1b[0m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
+  blue: '\x1b[34m',
+  brightYellow: '\x1b[93m',
+  white: '\x1b[97m',
+  gray: '\x1b[90m',
+  bold: '\x1b[1m'
+};
+
+function paintCmd(kind, text) {
+  const map = {
+    error: PC.red,
+    download: PC.cyan,
+    list: PC.blue,
+    update: PC.brightYellow,
+    arg: PC.white
+  };
+  const color = map[kind] || PC.white;
+  return color + text + PC.reset;
+}
+
+function highlightCmd(line) {
+  // 高亮命令关键字 + 参数
+  const parts = String(line).split(/\s+/);
+  if (!parts.length) return line;
+  const cmd = parts[0];
+  const cmdColors = {
+    install: PC.cyan, i: PC.cyan,
+    list: PC.blue, ls: PC.blue,
+    update: PC.brightYellow,
+    get: PC.cyan, search: PC.blue, download: PC.cyan,
+    version: PC.brightYellow, v: PC.brightYellow,
+    task: PC.brightYellow,
+    help: PC.white, exit: PC.white,
+    remove: PC.red, uninstall: PC.red, rm: PC.red
+  };
+  const c = cmdColors[cmd] || PC.white;
+  let out = PC.bold + c + cmd + PC.reset;
+  for (let i = 1; i < parts.length; i++) {
+    const a = parts[i];
+    if (a.startsWith('-')) {
+      out += ' ' + PC.gray + a + PC.reset;
+    } else {
+      out += ' ' + PC.white + a + PC.reset;
+    }
+  }
+  return out;
 }
 
 function buildHelpText() {
@@ -40,6 +94,13 @@ function buildHelpText() {
     '      --check                          ' + t('helpUpdateCheck'),
     '  epm update [--check]                 ' + t('helpCmdUpdate'),
     '  epm version [name]                   ' + t('helpCmdVersion'),
+    '  epm plugin path                    ' + t('helpCmdPluginPath'),
+    '  epm plugin search [kw]              ' + t('helpCmdPluginSearch'),
+    '  epm plugin add <name1,name2,...>    ' + t('helpCmdPluginAdd'),
+    '  epm plugin del <name1,name2,...>    ' + t('helpCmdPluginDel'),
+    '  epm plugin update [names]           ' + t('helpCmdPluginUpdate'),
+    '  epm plugin pack <zip> <name> <ver>  ' + t('helpCmdPluginPack'),
+    '  epm plugin list                     ' + t('helpCmdPluginList'),
     '  epm task list                        ' + t('helpCmdTaskList'),
     '  epm task stop <id|all>               ' + t('helpCmdTaskStop'),
     '  epm web [start|stop|status]          ' + t('helpCmdWeb'),
@@ -138,7 +199,7 @@ const KNOWN_COMMANDS = [
   'cli', 'list', 'get', 'search', 'add', 'install', 'i', 'download',
   'uninstall', 'remove', 'rm', 'redadd', 'redel', 'temp', 'set',
   'lang', 'pak', 'clear', 'cls', 'update', 'package', 'version', 'v',
-  'web', 'task', 'login', 'signup', 'logout', 'release',
+  'web', 'task', 'plugin', 'login', 'signup', 'logout', 'release',
   'exit', 'quit', 'help'
 ];
 
@@ -188,6 +249,12 @@ async function dispatch(argv) {
 
     case 'pak':
       return pakCommand(args._.slice(1), args.flags);
+
+    case 'model':
+      return modelCommand(args._.slice(1));
+
+    case 'plugin':
+      return pluginCommand(args._.slice(1), args.flags);
 
     case 'task':
       return taskCommand(args._.slice(1));
@@ -417,6 +484,44 @@ function splitNames(raw) {
   return String(raw || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
 }
 
+
+/* ═══════════════ 安装错误显示 ═══════════════ */
+
+function showInstallError(err) {
+  const msg = (err && err.message) || String(err);
+  log.error(msg);
+
+  const sug = (err && err.suggest) || [];
+  if (!sug.length) return;
+
+  console.log('');
+  console.log('  ' + (i18n.t('suggestHeader') !== 'suggestHeader'
+    ? i18n.t('suggestHeader')
+    : '你是不是想装:'));
+
+  const historyCmds = [];
+  for (let i = 0; i < sug.length; i++) {
+    const n = sug[i];
+    const cmd = 'install ' + n;
+    historyCmds.push(cmd);
+
+    const num = color.gray('  ' + (i + 1) + ') ');
+    const nameText = link(n, 'epm ' + cmd);
+    console.log(num + nameText);
+  }
+
+  // 加入历史，用户按 ↑ 就能翻出
+  if (global.__epm_addHistory) {
+    for (const c of historyCmds) {
+      try { global.__epm_addHistory(c); } catch (_) {}
+    }
+    console.log('');
+    console.log('  ' + color.gray(i18n.t('suggestHint') !== 'suggestHint'
+      ? i18n.t('suggestHint')
+      : '按 ↑ 选择命令执行'));
+  }
+}
+
 async function runInstall(args) {
   const raw = args._[1];
   if (!raw) throw new Error(i18n.t('installUsage'));
@@ -453,8 +558,7 @@ async function runInstall(args) {
     try {
       return await installer.install(names[0] || raw, version, installPath, args.flags);
     } catch (err) {
-      const msg = (err && err.message) || String(err);
-      log.error(msg);
+      showInstallError(err);
       return;
     }
   }
@@ -472,7 +576,7 @@ async function runInstall(args) {
       okN++;
     } catch (err) {
       failN++;
-      log.error(n + ': ' + err.message);
+      showInstallError(err);
     }
     console.log('');
   }
@@ -672,6 +776,132 @@ async function versionCommand(rest) {
 }
 
 /* ─────────────────────────────────────── pak ── */
+
+
+
+
+/* ═══════════════ plugin 命令 ═══════════════ */
+
+async function pluginCommand(rest, flags) {
+  flags = flags || {};
+  const sub = rest[0] || 'search';
+  const plugin = require('./plugin');
+
+  if (sub === 'path') {
+    const name = rest[1];
+    if (name) {
+      console.log(plugin.pluginPath(name));
+    } else {
+      console.log(plugin.PLUGIN_DIR);
+    }
+    return;
+  }
+
+  if (sub === 'search') {
+    const kw = rest.slice(1).join(' ');
+    const hits = plugin.search(kw);
+
+    // 先确保有包列表
+    if (!hits.length && !kw) {
+      try {
+        const { fetchAll } = require('./update-lib');
+        log.step('拉取插件列表...');
+        await fetchAll({});
+      } catch (_) {}
+      const again = plugin.search('');
+      if (!again.length) {
+        log.info('没有可用的插件');
+        return;
+      }
+      return printPluginList(again);
+    }
+
+    if (!hits.length) { log.info('没有匹配的插件'); return; }
+    return printPluginList(hits);
+  }
+
+  if (sub === 'add') {
+    const arg = rest.slice(1).join(',');
+    const names = arg.split(',').map(s => s.trim()).filter(Boolean);
+    if (!names.length) { log.error('用法: epm plugin add <name1,name2,...>'); return; }
+
+    // 如果找不到，先拉列表
+    if (!plugin.findAvailable(names[0])) {
+      try {
+        const { fetchAll } = require('./update-lib');
+        log.step('拉取插件列表...');
+        await fetchAll({});
+      } catch (_) {}
+    }
+    return plugin.add(names, {});
+  }
+
+  if (sub === 'del' || sub === 'remove') {
+    const arg = rest.slice(1).join(',');
+    const names = arg.split(',').map(s => s.trim()).filter(Boolean);
+    if (!names.length) { log.error('用法: epm plugin del <name1,name2,...>'); return; }
+    return plugin.del(names);
+  }
+
+  if (sub === 'update') {
+    const arg = rest.slice(1).join(',');
+    const names = arg ? arg.split(',').map(s => s.trim()).filter(Boolean) : null;
+    return plugin.update(names);
+  }
+
+  if (sub === 'pack') {
+    const zipPath = rest[1];
+    const pname = rest[2];
+    const pver = rest[3];
+    const pco = rest[4] || 'null';
+    const outDir = flags && flags.d ? flags.d : null;
+    if (!zipPath || !pname || !pver) {
+      log.error('用法: epm plugin pack <zip> <name> <version> [company] [-d <outdir>]');
+      return;
+    }
+    try {
+      const r = plugin.pack(zipPath, pname, pver, pco, outDir);
+      log.success('已生成 ' + r.file);
+      console.log('  输入: ' + formatBytes(r.sizeIn));
+      console.log('  输出: ' + formatBytes(r.sizeOut) +
+        '  (' + ((r.sizeOut / r.sizeIn) * 100).toFixed(1) + '%)');
+      console.log('');
+      console.log('  name.txt 内容:');
+      console.log('    ' + r.nameTxt.trim());
+    } catch (e) {
+      log.error('打包失败: ' + e.message);
+    }
+    return;
+  }
+
+  if (sub === 'list') {
+    const inst = plugin.listInstalled();
+    if (!inst.length) { log.info('未安装任何插件'); return; }
+    console.log('已安装插件:');
+    for (const p of inst) {
+      console.log('  ' + PC.cyan + p.name + PC.reset + '  v' + p.version +
+        '  ' + PC.gray + p.path + PC.reset);
+    }
+    return;
+  }
+
+  log.error('用法: epm plugin [path|search|add|del|update|list]');
+}
+
+function printPluginList(list) {
+  if (!list.length) { log.info('没有可用的插件'); return; }
+  console.log('可用的插件:  ' + list.length);
+  console.log('');
+  for (const p of list) {
+    const co = p.company && p.company !== 'null' ? PC.gray + '  ' + p.company + PC.reset : '';
+    const inst = p.installed ? PC.green + '  [已安装 v' + p.installed.version + ']' + PC.reset : '';
+    console.log('  ' + PC.cyan + p.name + PC.reset + co + inst);
+    if (p.latest) {
+      console.log('      v' + p.latest.version + '  ' + p.latest.fileName +
+        '  ' + PC.gray + (p.latest.size ? formatBytes(p.latest.size) : '') + PC.reset);
+    }
+  }
+}
 
 async function pakCommand(rest, flags) {
   if (!rest.length || rest[0] === 'list') return pakList();

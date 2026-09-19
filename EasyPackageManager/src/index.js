@@ -27,5 +27,9 @@ module.exports = {
   langfetch: require('./langfetch'),
   updateLib: require('./update-lib'),
   utils: require('./utils'),
+  pinyin: require('./pinyin'),
+  model: require('./model'),
+  plugin: require('./plugin'),
+  zstd: require('./zstd'),
   web: require('./web')
 };

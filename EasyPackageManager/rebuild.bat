@@ -22,11 +22,14 @@ echo [5/8] 注入 blob
 call npx postject dist\epm.exe NODE_SEA_BLOB dist\epm.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --overwrite
 if errorlevel 1 goto :fail
 
-echo [6/8] 同步 aria2c.exe
+echo [6/8] 同步 aria2c.exe / zstd.exe
 if exist "bin\aria2c.exe" (
   copy /Y "bin\aria2c.exe" "dist\aria2c.exe" >nul
 ) else (
   echo [!] bin\aria2c.exe 不存在
+)
+if exist "bin\zstd.exe" (
+  copy /Y "bin\zstd.exe" "dist\zstd.exe" >nul
 )
 
 echo [7/8] 同步配置文件

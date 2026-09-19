@@ -258,3 +258,14 @@ logoutNone="Not logged in"
 helpInstallPath="Install path for portable (after command)"
 
 pkgNotFoundHint="Did you mean: {names} ?"
+
+suggestHeader="Did you mean:"
+suggestHint="Press ↑ to pick a command, or type it directly"
+
+helpCmdPluginPath="Show plugins directory"
+helpCmdPluginSearch="Search plugins"
+helpCmdPluginAdd="Install plugins (comma separated)"
+helpCmdPluginDel="Delete plugins (comma separated)"
+helpCmdPluginUpdate="Update plugins (comma separated, omit=all)"
+helpCmdPluginList="List installed plugins"
+helpCmdPluginPack="Pack ZIP into ZST plugin"

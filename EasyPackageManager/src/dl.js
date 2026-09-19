@@ -8,16 +8,13 @@ const { spawn, execSync } = require('child_process');
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-/* ═══════════════════ 格式化 ═══════════════════ */
-
 function humanSpeed(bps) {
   if (!isFinite(bps) || bps <= 0) return '0B/s';
   if (bps >= 1073741824) return (bps / 1073741824).toFixed(2) + 'GB/s';
   if (bps >= 1048576) return (bps / 1048576).toFixed(2) + 'MB/s';
-  if (bps >= 1024) return (bps / 1024).toFixed(2) + 'KB/s';
+  if (bps >= 1024) return (bps / 1024).toFixed(1) + 'KB/s';
   return bps.toFixed(0) + 'B/s';
 }
-
 function humanSize(n) {
   if (n == null || n === 0) return '0B';
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -25,7 +22,6 @@ function humanSize(n) {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return (i === 0 ? v.toFixed(0) : v.toFixed(v < 10 ? 1 : 0)) + u[i];
 }
-
 function humanEta(sec) {
   if (!isFinite(sec) || sec < 0 || sec > 604800) return '--:--';
   const s = Math.floor(sec);
@@ -36,11 +32,12 @@ function humanEta(sec) {
   return m + ':' + String(ss).padStart(2, '0');
 }
 
-/* ═══════════════════ 进度条 ═══════════════════ */
+/* ═══════════════ 进度条（仅在非 shell 环境） ═══════════════ */
 
 function createBar() {
   if (global.__epm_shell) return null;
   if (!process.stdout.isTTY) return null;
+
   let startedAt = 0;
   let lastDraw = 0;
   const window = [];
@@ -64,24 +61,20 @@ function createBar() {
       if (dt > 0) speed = recv / dt;
     }
 
+    const done = total > 0 && recv >= total;
     const pct = total > 0 ? Math.min(recv / total, 1) : 0;
-    const eta = (total > 0 && speed > 0 && recv < total) ? (total - recv) / speed : 0;
+    const eta = (done || total <= 0 || speed <= 0) ? 0 : (total - recv) / speed;
 
     const cols = process.stdout.columns || 80;
-    const head = humanSpeed(speed) + '  Total:' + humanSize(total) + '  ETA:' + humanEta(eta) + '  ' +
+    const speedStr = done ? '完成中' : humanSpeed(speed);
+    const head = speedStr + '  Total:' + humanSize(total) + '  ETA:' + humanEta(eta) + '  ' +
                  Math.floor(pct * 100) + '%  ';
     const barW = Math.max(10, cols - head.length - 4);
-    const filled = Math.round(barW * pct);
-    const bar = '█'.repeat(filled);
+    const filled = done ? barW : Math.round(barW * pct);
+    const barChar = done ? '▓' : '█';
+    const bar = '\x1b[92m' + barChar.repeat(filled) + '\x1b[0m';
 
-    // 有输入行时，进度条写在输入行上方
-    if (global.__epm_rl) {
-      // 保存光标 -> 上移一行 -> 清行 -> 写 -> 下移回来 -> 恢复光标
-      process.stdout.write('\x1b7' + '\x1b[A' + '\r\x1b[K' +
-        head + '\u001b[32m' + bar + '\u001b[0m' + '\x1b[B' + '\x1b8');
-    } else {
-      process.stdout.write('\r\x1b[K' + head + '\u001b[32m' + bar + '\u001b[0m');
-    }
+    process.stdout.write('\r\x1b[K' + head + bar);
   }
 
   return {
@@ -92,7 +85,7 @@ function createBar() {
   };
 }
 
-/* ═══════════════════ HEAD 请求 ═══════════════════ */
+/* ═══════════════ HEAD ═══════════════ */
 
 function requestHead(url, redirect) {
   if (redirect === undefined) redirect = 0;
@@ -124,38 +117,30 @@ function requestHead(url, redirect) {
   });
 }
 
-/* ═══════════════════ 定位 aria2c.exe ═══════════════════ */
+/* ═══════════════ aria2c ═══════════════ */
 
 function findAria2c() {
-  // 1. exe 同目录
   const exeDir = path.dirname(process.execPath);
-  const p1 = path.join(exeDir, 'aria2c.exe');
-  if (fs.existsSync(p1)) return p1;
-
-  // 2. config.ROOT 的 bin/
+  const candidates = [
+    path.join(exeDir, 'aria2c.exe'),
+    path.join(exeDir, 'bin', 'aria2c.exe')
+  ];
   try {
     const config = require('./config');
-    const p2 = path.join(config.ROOT, 'aria2c.exe');
-    if (fs.existsSync(p2)) return p2;
-    const p3 = path.join(config.ROOT, 'bin', 'aria2c.exe');
-    if (fs.existsSync(p3)) return p3;
+    candidates.push(path.join(config.ROOT, 'aria2c.exe'));
+    candidates.push(path.join(config.ROOT, 'bin', 'aria2c.exe'));
   } catch (_) {}
-
-  // 3. 项目根 bin/
-  const p4 = path.resolve(__dirname, '..', 'bin', 'aria2c.exe');
-  if (fs.existsSync(p4)) return p4;
-
-  // 4. PATH
+  candidates.push(path.resolve(__dirname, '..', 'bin', 'aria2c.exe'));
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c; } catch (_) {}
+  }
   try {
     const out = execSync('where aria2c.exe', { encoding: 'utf8', windowsHide: true, timeout: 2000 });
     const first = out.split(/\r?\n/)[0].trim();
     if (first && fs.existsSync(first)) return first;
   } catch (_) {}
-
   return null;
 }
-
-/* ═══════════════════ aria2c 下载 ═══════════════════ */
 
 async function downloadViaAria2(aria2Path, url, dest, task, bar, threads) {
   const dir = path.dirname(dest);
@@ -166,51 +151,37 @@ async function downloadViaAria2(aria2Path, url, dest, task, bar, threads) {
   try { expected = (await requestHead(url)).size || 0; } catch (_) {}
 
   const N = Math.max(2, Math.min(threads || 16, 32));
-
   const args = [
-    '-x', String(N),                     // 每服务器最大连接数
-    '-s', String(N),                     // 分片数
-    '-k', '1M',                          // 每片最小 1M
-    '--console-log-level=warn',          // 只输出警告
-    '--summary-interval=0',              // 关闭 aria2c 自带进度
+    '-x', String(N), '-s', String(N), '-k', '1M',
+    '--console-log-level=warn',
+    '--summary-interval=0',
     '--allow-overwrite=true',
     '--auto-file-renaming=false',
     '--max-tries=5',
     '--retry-wait=3',
-    '-d', dir,
-    '-o', file,
-    url
+    '-d', dir, '-o', file, url
   ];
 
   return new Promise(function (resolve, reject) {
     let child;
     try {
-      child = spawn(aria2Path, args, {
-        windowsHide: true,
-        stdio: ['ignore', 'ignore', 'pipe']
-      });
-    } catch (e) {
-      return reject(new Error('aria2c spawn failed: ' + e.message));
-    }
+      child = spawn(aria2Path, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) { return reject(new Error('aria2c spawn failed: ' + e.message)); }
 
     let stderrBuf = '';
-
-    child.on('error', function (err) {
-      reject(new Error('aria2c launch failed: ' + err.message));
-    });
-
+    child.on('error', function (err) { reject(new Error('aria2c launch failed: ' + err.message)); });
     if (child.stderr) {
-      child.stderr.on('data', function (chunk) {
-        stderrBuf += String(chunk);
+      child.stderr.on('data', function (c) {
+        stderrBuf += String(c);
         if (stderrBuf.length > 4096) stderrBuf = stderrBuf.slice(-2048);
       });
     }
 
-    bar && bar.start();
+    if (task) {
+      task.abortFn = function () { try { child.kill('SIGKILL'); } catch (_) {} };
+    }
 
-    // 轮询文件大小（aria2c 会生成 .aria2 控制文件 + 真实文件）
-    const start = Date.now();
-    const MAX_WAIT = 6 * 3600 * 1000;
+    bar && bar.start();
 
     const poll = setInterval(function () {
       try {
@@ -219,14 +190,7 @@ async function downloadViaAria2(aria2Path, url, dest, task, bar, threads) {
         if (task) task.bytes = size;
         bar && bar.update(size, expected);
       } catch (_) {}
-    }, 500);
-
-    // 暴露中断函数
-    if (task) {
-      task.abortFn = function () {
-        try { child.kill('SIGKILL'); } catch (_) {}
-      };
-    }
+    }, 300);
 
     child.on('exit', function (code) {
       clearInterval(poll);
@@ -234,31 +198,22 @@ async function downloadViaAria2(aria2Path, url, dest, task, bar, threads) {
 
       if (code !== 0) {
         const msg = stderrBuf.trim().split(/\r?\n/).pop() || ('exit code ' + code);
-        return reject(new Error('aria2c 失败: ' + msg));
+        return reject(new Error('aria2c: ' + msg));
       }
 
       let finalSize = 0;
       try { finalSize = fs.statSync(dest).size; } catch (_) {}
-
       if (expected > 0 && finalSize !== expected) {
         return reject(new Error('文件不完整: ' + finalSize + '/' + expected));
       }
-
       if (task) task.bytes = finalSize;
       bar && bar.done(finalSize, expected || finalSize);
       resolve(dest);
     });
-
-    // 超时保护
-    setTimeout(function () {
-      if (child.exitCode === null) {
-        try { child.kill(); } catch (_) {}
-      }
-    }, MAX_WAIT);
   });
 }
 
-/* ═══════════════════ 单段/多段 HTTP 下载（aria2c 不可用时兜底） ═══════════════════ */
+/* ═══════════════ 多线程 HTTP ═══════════════ */
 
 function downloadSegment(url, dest, startByte, endByte, redirect, onData) {
   if (redirect === undefined) redirect = 0;
@@ -267,28 +222,20 @@ function downloadSegment(url, dest, startByte, endByte, redirect, onData) {
     let u;
     try { u = new URL(url); } catch (e) { return reject(e); }
     const lib = u.protocol === 'http:' ? http : https;
-    const headers = {
-      'user-agent': 'EasyPackageManager/1.0.0',
-      'accept': '*/*',
-      'accept-encoding': 'identity'
-    };
+    const headers = { 'user-agent': 'EasyPackageManager/1.0.0', 'accept': '*/*', 'accept-encoding': 'identity' };
     if (startByte != null) headers.range = 'bytes=' + startByte + '-' + endByte;
 
     const req = lib.request({
       protocol: u.protocol, hostname: u.hostname,
       port: u.port || undefined,
       path: u.pathname + u.search,
-      method: 'GET',
-      headers: headers
+      method: 'GET', headers: headers
     }, function (res) {
       if ([301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
         res.resume();
         return resolve(downloadSegment(url, dest, startByte, endByte, redirect + 1, onData));
       }
-      if (res.statusCode >= 400) {
-        res.resume();
-        return reject(new Error('HTTP ' + res.statusCode));
-      }
+      if (res.statusCode >= 400) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
       const ws = fs.createWriteStream(dest, startByte != null ? { flags: 'a' } : {});
       res.on('data', function (chunk) { onData && onData(chunk.length); });
       res.pipe(ws);
@@ -306,7 +253,6 @@ async function downloadMultiThread(url, dest, task, bar, threads) {
   const head = await requestHead(url);
   if (head.status >= 400) throw new Error('HTTP ' + head.status);
   const total = head.size || 0;
-
   if (task) task.total = total;
   bar && bar.start();
 
@@ -321,13 +267,10 @@ async function downloadMultiThread(url, dest, task, bar, threads) {
     return dest;
   }
 
-  // 记录分段请求，供 abort 调用
   const activeReqs = [];
   if (task) {
     task.abortFn = function () {
-      for (const r of activeReqs) {
-        try { r.destroy(new Error('Aborted')); } catch (_) {}
-      }
+      for (const r of activeReqs) { try { r.destroy(new Error('Aborted')); } catch (_) {} }
     };
   }
 
@@ -370,7 +313,7 @@ async function downloadMultiThread(url, dest, task, bar, threads) {
   return dest;
 }
 
-/* ═══════════════════ 对外入口 ═══════════════════ */
+/* ═══════════════ 对外入口 ═══════════════ */
 
 async function download(url, dest, options) {
   options = options || {};
@@ -381,7 +324,6 @@ async function download(url, dest, options) {
 
   try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (_) {}
 
-  // ═══ 完整性校验：文件存在且大小匹配才跳过 ═══
   if (fs.existsSync(dest)) {
     const curSize = fs.statSync(dest).size;
     if (expected > 0 && curSize === expected) {
@@ -389,7 +331,7 @@ async function download(url, dest, options) {
       return dest;
     }
     if (expected > 0 && curSize !== expected) {
-      if (showBar) console.log('  残文件大小 ' + humanSize(curSize) + ' ≠ ' + humanSize(expected) + '，删除重下');
+      if (showBar && !global.__epm_shell) console.log('  残文件 ' + humanSize(curSize) + ' ≠ ' + humanSize(expected) + '，删除重下');
       try { fs.unlinkSync(dest); } catch (_) {}
     }
     if (expected === 0 && curSize > 0) {
@@ -400,24 +342,21 @@ async function download(url, dest, options) {
 
   const bar = showBar ? createBar() : null;
 
-  // ═══ 优先 aria2c ═══
   const aria2Path = findAria2c();
   if (aria2Path) {
-    if (showBar) console.log('  使用 aria2c (' + threads + ' 线程)');
+    if (showBar && !global.__epm_shell) console.log('  使用 aria2c (' + threads + ' 线程)');
     try {
       return await downloadViaAria2(aria2Path, url, dest, task, bar, threads);
     } catch (e) {
-      if (showBar) console.log('  aria2c 失败，回退多线程: ' + e.message);
+      if (showBar && !global.__epm_shell) console.log('  aria2c 失败，回退多线程: ' + e.message);
       try { fs.unlinkSync(dest); } catch (_) {}
       try { fs.unlinkSync(dest + '.aria2'); } catch (_) {}
     }
-  } else {
-    if (showBar) console.log('  aria2c.exe 未找到，使用内置多线程');
+  } else if (showBar && !global.__epm_shell) {
+    console.log('  aria2c.exe 未找到，使用内置多线程');
   }
 
-  // ═══ 回退多线程 ═══
   const r = await downloadMultiThread(url, dest, task, bar, threads);
-
   if (expected > 0) {
     const finalSize = fs.statSync(dest).size;
     if (finalSize !== expected) {
@@ -428,7 +367,4 @@ async function download(url, dest, options) {
   return r;
 }
 
-module.exports = {
-  download: download,
-  findAria2c: findAria2c
-};
+module.exports = { download: download, findAria2c: findAria2c };

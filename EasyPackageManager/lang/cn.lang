@@ -257,3 +257,14 @@ logoutNone="尚未登录"
 helpInstallPath="便携版安装路径（跟在命令后）"
 
 pkgNotFoundHint="你是不是想装: {names} ?"
+
+suggestHeader="你是不是想装:"
+suggestHint="按 ↑ 选择命令执行，或直接输入命令"
+
+helpCmdPluginPath="显示插件目录"
+helpCmdPluginSearch="搜索插件"
+helpCmdPluginAdd="安装插件（逗号分隔）"
+helpCmdPluginDel="删除插件（逗号分隔）"
+helpCmdPluginUpdate="更新插件（逗号分隔，省略=全部）"
+helpCmdPluginList="列出已安装插件"
+helpCmdPluginPack="把 ZIP 打包成 ZST 插件"
