@@ -254,3 +254,7 @@ loginAlready="Already logged in"
 
 logoutOK="Logged out"
 logoutNone="Not logged in"
+
+helpInstallPath="Install path for portable (after command)"
+
+pkgNotFoundHint="Did you mean: {names} ?"

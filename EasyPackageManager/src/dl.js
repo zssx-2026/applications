@@ -39,6 +39,7 @@ function humanEta(sec) {
 /* ═══════════════════ 进度条 ═══════════════════ */
 
 function createBar() {
+  if (global.__epm_shell) return null;
   if (!process.stdout.isTTY) return null;
   let startedAt = 0;
   let lastDraw = 0;

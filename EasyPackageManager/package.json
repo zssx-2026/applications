@@ -1,10 +1,11 @@
 {
   "name": "easy-package-manager",
-  "version": "1.0.0",
+  "version": "1.0pre1",
   "description": "EasyPackageManager (epm)",
   "main": "src/index.js",
   "bin": {
-    "epm": "bin/epm.js", "epmx": "bin/epmx.js"
+    "epm": "bin/epm.js",
+    "epmx": "bin/epmx.js"
   },
   "files": [
     "bin",

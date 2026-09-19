@@ -33,7 +33,8 @@ function buildHelpText() {
     '  epm list install                     ' + t('helpCmdListInstall'),
     '  epm search <keyword> [opts]          ' + t('helpCmdSearch'),
     '  epm get                              ' + t('helpCmdGet'),
-    '  epm install <name> [version]         ' + t('helpCmdInstall'),
+    '  epm install <name> [version] [path]  ' + t('helpCmdInstall'),
+    '      便携版可指定安装路径              ' + t('helpInstallPath'),
     '      -q / -k / --no-run / -d <dir>    install options',
     '  epm package update [name]            ' + t('helpCmdPackageUpdate'),
     '      --check                          ' + t('helpUpdateCheck'),
@@ -361,6 +362,13 @@ async function webCommand(rest, flags) {
     log.error(i18n.t('webInvalidPort') + ': ' + port);
   } else if (r.error === 'timeout') {
     log.error(i18n.t('webStartFailed') + ': timeout');
+    log.info('可能原因：');
+    console.log('  1. 端口 ' + port + ' 被其它进程占用');
+    console.log('     运行: netstat -ano | findstr :' + port);
+    console.log('  2. 上次 Web 进程没退干净');
+    console.log('     运行: taskkill /F /IM epm.exe');
+    console.log('  3. 查看子进程日志:');
+    console.log('     type "%USERPROFILE%\\.epm\\temp\\.epm-web.log"');
   } else {
     log.error(i18n.t('webStartFailed') + ': ' + (r.message || r.error));
   }
@@ -412,11 +420,43 @@ function splitNames(raw) {
 async function runInstall(args) {
   const raw = args._[1];
   if (!raw) throw new Error(i18n.t('installUsage'));
-  const version = args._[2] || null;
+
+  // 解析位置参数：<name> [version] [path]
+  // 第二个参数是路径（含 / \ : 或 ~ 或 . 开头）时，直接作为 path
+  let version = null;
+  let installPath = null;
+
+  const a2 = args._[2] || null;
+  const a3 = args._[3] || null;
+
+  function isPathLike(s) {
+    if (!s) return false;
+    if (/[\\/]/.test(s)) return true;
+    if (/^[A-Za-z]:/.test(s)) return true;
+    if (s === '~' || s.indexOf('~/') === 0 || s.indexOf('~\\') === 0) return true;
+    if (s === '.' || s === '..' || s.indexOf('./') === 0 || s.indexOf('.\\') === 0) return true;
+    return false;
+  }
+
+  if (a2) {
+    if (isPathLike(a2)) {
+      installPath = a2;
+    } else {
+      version = a2;
+      if (a3) installPath = a3;
+    }
+  }
+
   const names = splitNames(raw);
 
   if (names.length <= 1) {
-    return installer.install(names[0] || raw, version, args.flags);
+    try {
+      return await installer.install(names[0] || raw, version, installPath, args.flags);
+    } catch (err) {
+      const msg = (err && err.message) || String(err);
+      log.error(msg);
+      return;
+    }
   }
 
   const total = names.length;
@@ -427,8 +467,13 @@ async function runInstall(args) {
   for (let i = 0; i < total; i++) {
     const n = names[i];
     console.log(color.cyan('[' + (i + 1) + '/' + total + '] ') + color.bold(n));
-    try { await installer.install(n, version, args.flags); okN++; }
-    catch (err) { failN++; log.error(n + ': ' + err.message); }
+    try {
+      await installer.install(n, version, installPath, args.flags);
+      okN++;
+    } catch (err) {
+      failN++;
+      log.error(n + ': ' + err.message);
+    }
     console.log('');
   }
   log.success(i18n.t('installBatchDone') + '  ' + okN + ' ok' + (failN ? ' / ' + failN + ' fail' : ''));

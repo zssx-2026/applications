@@ -2,12 +2,22 @@
 
 const { dispatch } = require('./cli');
 const proc = require('./process');
+const tasks = require('./tasks');
 const i18n = require('./i18n');
+const config = require('./config');
 const versionLib = require('./version');
-const { color } = require('./utils');
+
+const C = {
+  reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
+  red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m',
+  blue: '\x1b[34m', magenta: '\x1b[35m', cyan: '\x1b[36m',
+  gray: '\x1b[90m', brightCyan: '\x1b[96m', brightWhite: '\x1b[97m',
+  brightGreen: '\x1b[92m', brightYellow: '\x1b[93m'
+};
 
 const MAX_HISTORY = 200;
 const PROMPT = 'epm> ';
+const PROMPT_COL = 5;
 
 let inputBuf = '';
 let cursorPos = 0;
@@ -15,63 +25,167 @@ let history = [];
 let historyIdx = -1;
 let stdinHandler = null;
 let exiting = false;
-
-/* ── 输入行渲染 ─────────────────────────────────────────────
- * 关键点：
- *  - 输入行永远在"当前行"（不清屏、不定位到最后一行）
- *  - console.log 前先清掉输入行，输出后重绘
- *  - 光标用相对移动，不用 \x1b[<row>;<col>H
- * ──────────────────────────────────────────────────────────── */
-
-function drawInput() {
-  if (exiting || !process.stdout.isTTY) return;
-  let out = '\r\x1b[K';
-  out += color.cyan(PROMPT) + inputBuf;
-  const back = inputBuf.length - cursorPos;
-  if (back > 0) out += '\x1b[' + back + 'D';
-  out += '\x1b[?25h';
-  process.stdout.write(out);
-}
-
-/* ── 劫持 console.* ──
- * 输入行会被清掉 -> 输出 -> 重绘
- * ──────────────────────────────────────────────────────────── */
-let logHooked = false;
+let scrollRegionOn = false;
+let scrollBottom = 0;
+let tickTimer = null;
 let origLog, origErr, origWarn;
 
-function hookConsole() {
-  if (logHooked) return;
-  origLog = console.log;
-  origErr = console.error;
-  origWarn = console.warn;
+function vlen(s) {
+  return String(s).replace(/\x1b\[[0-9;]*m/g, '').length;
+}
 
-  function wrap(orig) {
-    return function () {
-      if (process.stdout.isTTY && !exiting) {
-        process.stdout.write('\r\x1b[K');   // 清当前输入行
-      }
-      orig.apply(console, arguments);
-      if (process.stdout.isTTY && !exiting) {
-        drawInput();                        // 重绘输入行
-      }
-    };
+function fmtSpeed(bps) {
+  if (!isFinite(bps) || bps <= 0) return '0B/s';
+  if (bps >= 1073741824) return (bps / 1073741824).toFixed(2) + 'GB/s';
+  if (bps >= 1048576) return (bps / 1048576).toFixed(2) + 'MB/s';
+  if (bps >= 1024) return (bps / 1024).toFixed(1) + 'KB/s';
+  return bps.toFixed(0) + 'B/s';
+}
+function fmtSize(n) {
+  if (n == null || n === 0) return '0B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = n, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? v.toFixed(0) : v.toFixed(v < 10 ? 1 : 0)) + u[i];
+}
+function fmtEta(sec) {
+  if (!isFinite(sec) || sec < 0 || sec > 86400) return '--:--';
+  const s = Math.floor(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+  return m + ':' + String(ss).padStart(2, '0');
+}
+
+/* ═══════════ 滚动区 ═══════════ */
+
+function setupScrollRegion() {
+  if (!process.stdout.isTTY) return;
+  const H = process.stdout.rows || 24;
+  if (H < 6) { scrollRegionOn = false; return; }
+  scrollBottom = H - 2;
+  process.stdout.write('\x1b[1;' + scrollBottom + 'r');
+  process.stdout.write('\x1b[' + scrollBottom + ';1H');
+  scrollRegionOn = true;
+}
+
+function restoreScrollRegion() {
+  if (!scrollRegionOn) return;
+  process.stdout.write('\x1b[r');
+  scrollRegionOn = false;
+}
+
+function scrollOutput(text) {
+  if (!scrollRegionOn) {
+    process.stdout.write(String(text) + '\n');
+    return;
   }
-
-  console.log = wrap(origLog);
-  console.error = wrap(origErr);
-  console.warn = wrap(origWarn);
-  logHooked = true;
+  const lines = String(text).split('\n');
+  for (const line of lines) {
+    process.stdout.write('\x1b[' + scrollBottom + ';1H');
+    process.stdout.write('\r\x1b[K');
+    process.stdout.write(line);
+    process.stdout.write('\n');
+  }
 }
 
-function unhookConsole() {
-  if (!logHooked) return;
-  console.log = origLog;
-  console.error = origErr;
-  console.warn = origWarn;
-  logHooked = false;
+/* ═══════════ 底部两行 ═══════════ */
+
+function buildStatusLine() {
+  const list = tasks.list();
+  if (!list.length) return '';
+  const W = process.stdout.columns || 80;
+  const t = list[0];
+  const extra = list.length > 1 ? C.gray + ' (+' + (list.length - 1) + ')' + C.reset : '';
+  const label = t.type === 'download' ? '下载' : '安装';
+
+  if (t.type === 'download') {
+    const pct = t.total > 0 ? Math.min(t.bytes / t.total, 1) : 0;
+    const elapsed = Math.max(0.1, (Date.now() - t.started) / 1000);
+    const speed = t.bytes / elapsed;
+    const speedStr = fmtSpeed(speed);
+    const totalStr = fmtSize(t.total);
+    const etaStr = t.total > 0 && speed > 0 ? fmtEta((t.total - t.bytes) / speed) : '--:--';
+    const pctStr = Math.floor(pct * 100) + '%';
+
+    const head = C.brightGreen + '▼' + C.reset + ' ' +
+      C.bold + t.name + C.reset + extra + '  ' +
+      C.cyan + speedStr + C.reset + '  ' +
+      C.gray + 'Total:' + C.reset + C.brightWhite + totalStr + C.reset + '  ' +
+      C.gray + 'ETA:' + C.reset + C.brightWhite + etaStr + C.reset + '  ' +
+      C.brightYellow + pctStr + C.reset + '  ';
+
+    const headLen = vlen(head);
+    const barW = Math.max(8, W - headLen - 1);
+    const filled = Math.round(barW * pct);
+    const bar = C.brightGreen + '█'.repeat(filled) + C.reset;
+    return head + bar;
+  }
+  return C.yellow + '■' + C.reset + ' ' +
+    C.bold + t.name + C.reset + extra + '  ' +
+    C.yellow + '[' + label + '...]' + C.reset;
 }
 
-/* ── 编辑操作 ── */
+function drawBottom() {
+  if (!process.stdout.isTTY || !scrollRegionOn) return;
+  const H = process.stdout.rows || 24;
+
+  process.stdout.write('\x1b[' + (H - 1) + ';1H\x1b[K');
+  const status = buildStatusLine();
+  if (status) process.stdout.write(status);
+
+  process.stdout.write('\x1b[' + H + ';1H\x1b[K');
+  process.stdout.write(C.brightCyan + PROMPT + C.reset);
+  process.stdout.write(C.brightWhite + inputBuf + C.reset);
+
+  const col = PROMPT_COL + cursorPos + 1;
+  process.stdout.write('\x1b[' + H + ';' + col + 'H');
+  process.stdout.write('\x1b[?25h');
+}
+
+/* ═══════════ 快捷键 ═══════════ */
+
+const HOTKEY_DEFS = {
+  'ctrl+x': { type: 'byte', value: 0x18 },
+  'ctrl+q': { type: 'byte', value: 0x11 },
+  'ctrl+b': { type: 'byte', value: 0x02 },
+  'ctrl+alt+c': { type: 'combo', mods: [6, 7], keys: [99, 67] },
+  'ctrl+alt+x': { type: 'combo', mods: [6, 7], keys: [120, 88] },
+  'ctrl+shift+x': { type: 'combo', mods: [5, 7], keys: [120, 88] },
+  'ctrl+shift+c': { type: 'combo', mods: [5, 7], keys: [99, 67] }
+};
+
+function getHotkey() {
+  let raw = '';
+  try { raw = config.get('hotkey') || ''; } catch (_) {}
+  return String(raw).toLowerCase().trim() || 'ctrl+x';
+}
+
+function matchHotkey(str, i, key) {
+  const def = HOTKEY_DEFS[key];
+  if (!def) return -1;
+  if (def.type === 'byte') {
+    if (str.charCodeAt(i) === def.value) return 1;
+    return -1;
+  }
+  if (str[i] !== '\x1b' || str[i + 1] !== '[') return -1;
+  const rest = str.slice(i + 2, i + 30);
+  let km = rest.match(/^(\d+);(\d+)u/);
+  if (km) {
+    const k = parseInt(km[1], 10), m = parseInt(km[2], 10);
+    if (def.keys.indexOf(k) !== -1 && def.mods.indexOf(m) !== -1) return 2 + km[0].length;
+  }
+  let xm = rest.match(/^27;(\d+);(\d+)~/);
+  if (xm) {
+    const m = parseInt(xm[1], 10), k = parseInt(xm[2], 10);
+    if (def.mods.indexOf(m) !== -1 && def.keys.indexOf(k) !== -1) return 2 + xm[0].length;
+  }
+  return -1;
+}
+
+/* ═══════════ 编辑 ═══════════ */
+
 function insertStr(s) {
   inputBuf = inputBuf.slice(0, cursorPos) + s + inputBuf.slice(cursorPos);
   cursorPos += s.length;
@@ -110,7 +224,11 @@ function histDown() {
   cursorPos = inputBuf.length;
 }
 
-/* ── 命令执行 ── */
+function killAllTasks() {
+  if (tasks.count() === 0) return 0;
+  return tasks.abortAll().length;
+}
+
 async function handleCommand(cmd) {
   let cmds;
   if (cmd[0] === '{' && cmd[cmd.length - 1] === '}') {
@@ -124,12 +242,13 @@ async function handleCommand(cmd) {
       if (argv[0] === 'epm') argv.shift();
       await dispatch(argv);
     } catch (e) {
-      console.error((e && e.message) || String(e));
+      scrollOutput(C.red + 'x' + C.reset + ' ' + ((e && e.message) || String(e)));
     }
   }
 }
 
-/* ── 输入处理 ── */
+/* ═══════════ 输入 ═══════════ */
+
 function attachInput() {
   process.stdin.setEncoding('utf8');
   if (process.stdin.isTTY) {
@@ -139,6 +258,7 @@ function attachInput() {
 
   stdinHandler = function (data) {
     const str = String(data);
+    const hotkey = getHotkey();
     let i = 0;
 
     while (i < str.length) {
@@ -146,6 +266,15 @@ function attachInput() {
 
       // ESC 序列
       if (code === 0x1B) {
+        const hkLen = matchHotkey(str, i, hotkey);
+        if (hkLen > 0) {
+          const n = killAllTasks();
+          scrollOutput(C.brightYellow + '⌨ ' + hotkey.toUpperCase() + C.reset +
+            (n > 0 ? '  ' + C.green + '中断 ' + n + ' 个任务' + C.reset
+                   : '  ' + C.gray + '无运行中的任务' + C.reset));
+          i += hkLen;
+          continue;
+        }
         if (str[i + 1] === '[') {
           const k = str[i + 2];
           if (k === 'A') { histUp(); i += 3; continue; }
@@ -155,9 +284,11 @@ function attachInput() {
           if (k === 'H') { cursorPos = 0; i += 3; continue; }
           if (k === 'F') { cursorPos = inputBuf.length; i += 3; continue; }
           if (k === '3' && str[i + 3] === '~') { deleteChar(); i += 4; continue; }
-          i += 3; continue;
+          i += 3;
+          continue;
         }
-        i++; continue;
+        i++;
+        continue;
       }
 
       // 回车
@@ -166,30 +297,27 @@ function attachInput() {
         const cmd = inputBuf.trim();
         inputBuf = '';
         cursorPos = 0;
-
-        // 清掉输入行
-        if (process.stdout.isTTY) process.stdout.write('\r\x1b[K');
-
-        if (!cmd) { drawInput(); continue; }
-
+        if (!cmd) { drawBottom(); continue; }
         history.push(cmd);
         if (history.length > MAX_HISTORY) history.shift();
         historyIdx = -1;
-
-        console.log(color.cyan(PROMPT) + cmd);
-
+        scrollOutput(C.brightCyan + PROMPT + C.reset + C.brightWhite + cmd + C.reset);
         if (cmd === 'exit' || cmd === 'quit') {
           exiting = true;
-          unhookConsole();
+          try {
+            const H = process.stdout.rows || 24;
+            process.stdout.write('\x1b[r');
+            process.stdout.write('\x1b[' + (H - 1) + ';1H');
+            process.stdout.write('\x1b[J');
+            process.stdout.write('\x1b[?25h');
+          } catch (_) {}
           if (global.__epm_exitNow) global.__epm_exitNow(0);
           return;
         }
-
-        // 异步执行，不阻塞输入
         handleCommand(cmd).catch(function (e) {
-          console.error((e && e.message) || String(e));
+          scrollOutput(C.red + 'x' + C.reset + ' ' + ((e && e.message) || String(e)));
         });
-        drawInput();
+        drawBottom();
         continue;
       }
 
@@ -198,22 +326,30 @@ function attachInput() {
 
       // 控制字符
       if (code < 0x20) {
+        const hk = HOTKEY_DEFS[hotkey];
+        if (hk && hk.type === 'byte' && code === hk.value) {
+          const n = killAllTasks();
+          scrollOutput(C.brightYellow + '⌨ ' + hotkey.toUpperCase() + C.reset +
+            (n > 0 ? '  ' + C.green + '中断 ' + n + ' 个任务' + C.reset
+                   : '  ' + C.gray + '无运行中的任务' + C.reset));
+          i++;
+          continue;
+        }
         i++;
         if (code === 0x03) {
-          inputBuf = '';
-          cursorPos = 0;
-          const tasks = require('./tasks');
-          if (tasks.count() > 0) {
-            const killed = tasks.abortAll();
-            process.stdout.write('\r\x1b[K');
-            process.stdout.write('^C  中断 ' + killed.length + ' 个任务\n');
+          if (inputBuf.length > 0) {
+            inputBuf = '';
+            cursorPos = 0;
+            scrollOutput(C.gray + '^C  已清空输入，下载继续' + C.reset);
           } else {
-            process.stdout.write('^C\n');
+            scrollOutput(C.gray + '^C  (' + hotkey.toUpperCase() + ' 中断任务)' + C.reset);
           }
-        } else if (code === 0x04) {
-          if (inputBuf.length === 0) process.stdout.write('^D\n');
+        }
+        else if (code === 0x04) {
+          if (inputBuf.length === 0) scrollOutput(C.gray + '^D' + C.reset);
           else deleteChar();
-        } else if (code === 0x15) { inputBuf = ''; cursorPos = 0; }
+        }
+        else if (code === 0x15) { inputBuf = ''; cursorPos = 0; }
         else if (code === 0x17) {
           const b = inputBuf.slice(0, cursorPos);
           const a = inputBuf.slice(cursorPos);
@@ -223,44 +359,89 @@ function attachInput() {
         }
         else if (code === 0x01) cursorPos = 0;
         else if (code === 0x05) cursorPos = inputBuf.length;
+        else if (code === 0x0B) inputBuf = inputBuf.slice(0, cursorPos);
+        else if (code === 0x0C) {
+          process.stdout.write('\x1b[2J');
+          setupScrollRegion();
+        }
         continue;
       }
 
-      // 普通字符（含多字节 UTF-8）
+      // 普通字符
       const cp = str.codePointAt(i);
       const len = cp > 0xFFFF ? 2 : 1;
       insertStr(str.slice(i, i + len));
       i += len;
     }
-
-    drawInput();
+    drawBottom();
   };
 
   process.stdin.on('data', stdinHandler);
 }
 
-/* ── 主入口 ── */
+/* ═══════════ 主入口 ═══════════ */
+
 function run() {
   return new Promise(function (resolve) {
-    hookConsole();
+    origLog = console.log;
+    origErr = console.error;
+    origWarn = console.warn;
+    global.__epm_shell = true;
 
-    console.log('EasyPackageManager  v' + versionLib.getPkgVersion());
-    console.log(i18n.t('helpUsage') + ': help / exit');
-    console.log(i18n.t('helpMultiLine'));
-    console.log('');
+    function wrap() {
+      const text = Array.from(arguments).map(function (a) {
+        return typeof a === 'string' ? a : String(a);
+      }).join(' ');
+      scrollOutput(text);
+    }
+    console.log = wrap;
+    console.error = wrap;
+    console.warn = wrap;
 
+    scrollOutput(C.brightCyan + 'EasyPackageManager' + C.reset + '  ' +
+      C.gray + 'v' + versionLib.getPkgVersion() + C.reset);
+    scrollOutput(C.gray + i18n.t('helpUsage') + ': ' +
+      C.brightWhite + 'help' + C.reset + ' / ' + C.brightWhite + 'exit' + C.reset);
+    scrollOutput(C.gray + (i18n.t('helpMultiLine') || '多行命令，例: { list; install FreeArc }') + C.reset);
+    const hk = getHotkey().toUpperCase();
+    scrollOutput(C.gray + '  ' +
+      C.brightYellow + 'Ctrl+C' + C.reset + C.gray + ' 清空输入 · ' + C.reset +
+      C.brightYellow + hk + C.reset + C.gray + ' 中断任务 · ' + C.reset +
+      C.brightYellow + 'epm set hotkey <key>' + C.reset + C.gray + ' 切换' + C.reset);
+    scrollOutput('');
+
+    setupScrollRegion();
     attachInput();
-    drawInput();
+    drawBottom();
+
+    tickTimer = setInterval(function () {
+      if (!exiting && tasks.count() > 0) drawBottom();
+    }, 300);
+
+    process.stdout.on('resize', function () {
+      setupScrollRegion();
+      drawBottom();
+    });
 
     global.__epm_cleanup = function () {
-      unhookConsole();
+      if (tickTimer) clearInterval(tickTimer);
       if (stdinHandler) {
         try { process.stdin.removeListener('data', stdinHandler); } catch (_) {}
         stdinHandler = null;
       }
       try { process.stdin.setRawMode(false); } catch (_) {}
       try { process.stdin.pause(); } catch (_) {}
+      try {
+        const H = process.stdout.rows || 24;
+        process.stdout.write('\x1b[r');
+        process.stdout.write('\x1b[' + (H - 1) + ';1H\x1b[J');
+      } catch (_) {}
+      restoreScrollRegion();
       if (process.stdout.isTTY) process.stdout.write('\x1b[?25h\x1b[0m');
+      console.log = origLog;
+      console.error = origErr;
+      console.warn = origWarn;
+      global.__epm_shell = false;
       resolve();
     };
   });

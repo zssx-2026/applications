@@ -30,6 +30,7 @@ const DEFAULTS = {
   installdir: '',
   registryfile: '',
   lang: '',
+  hotkey: 'ctrl+x',
   'network.retries': 4,
   'network.retryDelayMs': 800,
   'network.timeoutMs': 30000,
@@ -59,20 +60,12 @@ function resolvePath(p) {
 
 function get(key) {
   const raw = loadRaw();
-
-  if (key === 'tempdir') {
-    return raw.tempdir ? resolvePath(raw.tempdir) : path.join(DATA_DIR, 'temp');
-  }
-  if (key === 'installdir') {
-    return raw.installdir ? resolvePath(raw.installdir) : platform.defaultInstallDir();
-  }
-  if (key === 'registryfile') {
-    return raw.registryfile ? resolvePath(raw.registryfile) : path.join(DATA_DIR, 'registry.json');
-  }
-  if (key === 'versionfile') {
-    return path.join(DATA_DIR, 'versions.json');
-  }
+  if (key === 'tempdir') return raw.tempdir ? resolvePath(raw.tempdir) : path.join(DATA_DIR, 'temp');
+  if (key === 'installdir') return raw.installdir ? resolvePath(raw.installdir) : platform.defaultInstallDir();
+  if (key === 'registryfile') return raw.registryfile ? resolvePath(raw.registryfile) : path.join(DATA_DIR, 'registry.json');
+  if (key === 'versionfile') return path.join(DATA_DIR, 'versions.json');
   if (key === 'lang') return raw.lang || '';
+  if (key === 'hotkey') return raw.hotkey || DEFAULTS.hotkey;
   if (key === 'github.token') return (raw.github && raw.github.token) || '';
   if (key === 'github.apiBase') return (raw.github && raw.github.apiBase) || DEFAULTS['github.apiBase'];
   if (key.indexOf('network.') === 0) {
@@ -84,7 +77,8 @@ function get(key) {
 
 function set(key, value) {
   const raw = loadRaw();
-  if (key === 'tempdir' || key === 'installdir' || key === 'registryfile' || key === 'lang') {
+  if (key === 'tempdir' || key === 'installdir' || key === 'registryfile' ||
+      key === 'lang' || key === 'hotkey') {
     raw[key] = value;
   } else if (key.indexOf('github.') === 0) {
     if (!raw.github) raw.github = {};
@@ -113,6 +107,7 @@ function list() {
     installdir: get('installdir'),
     registryfile: get('registryfile'),
     lang: langDisplay,
+    hotkey: get('hotkey'),
     'network.retries': get('network.retries'),
     'network.retryDelayMs': get('network.retryDelayMs'),
     'network.timeoutMs': get('network.timeoutMs'),

@@ -786,7 +786,7 @@ function startBackground(opts) {
         clearInterval(iv);
         try { if (logFd != null) fs.closeSync(logFd); } catch (_) {}
         resolve({ ok: true, port: info.port, pid: info.pid });
-      } else if (Date.now() - t0 > 8000) {
+      } else if (Date.now() - t0 > 15000) {
         clearInterval(iv);
         try { if (logFd != null) fs.closeSync(logFd); } catch (_) {}
         let logContent = '';

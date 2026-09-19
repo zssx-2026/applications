@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-19T02:58:11.804Z",
-  "count": 14,
+  "updatedAt": "2026-09-19T05:22:40.765Z",
+  "count": 20,
   "stats": {
-    "pkgCount": 14,
+    "pkgCount": 20,
     "releaseCount": 2,
-    "fileCount": 18,
-    "updatedAt": "2026-09-19T02:58:11.787Z"
+    "fileCount": 26,
+    "updatedAt": "2026-09-19T05:22:40.749Z"
   },
   "packages": [
     {
@@ -56,7 +56,7 @@
       ]
     },
     {
-      "name": "dgpro",
+      "name": "DiskGenius",
       "type": "setup",
       "company": "diskgenius",
       "latest": {
@@ -75,6 +75,29 @@
           "size": 32787578,
           "url": "https://github.com/zssx-2026/applications/releases/download/application1/DiskGeniusPro_x64_Setup.exe",
           "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "EnAuth",
+      "type": "setup",
+      "company": "null",
+      "latest": {
+        "version": "4.4.25",
+        "tag": "application2",
+        "fileName": "ente-auth-v4.4.25-installer.exe",
+        "size": 28606744,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/ente-auth-v4.4.25-installer.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "4.4.25",
+          "tag": "application2",
+          "fileName": "ente-auth-v4.4.25-installer.exe",
+          "size": 28606744,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/ente-auth-v4.4.25-installer.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
         }
       ]
     },
@@ -263,8 +286,77 @@
       ]
     },
     {
-      "name": "resource_hacker",
+      "name": "MCASelector",
       "type": "setup",
+      "company": "null",
+      "latest": {
+        "version": "2.8",
+        "tag": "application2",
+        "fileName": "mcaselector-2.8-setup.exe",
+        "size": 55857064,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/mcaselector-2.8-setup.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "2.8",
+          "tag": "application2",
+          "fileName": "mcaselector-2.8-setup.exe",
+          "size": 55857064,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/mcaselector-2.8-setup.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        }
+      ]
+    },
+    {
+      "name": "MCreator",
+      "type": "setup",
+      "company": "null",
+      "latest": {
+        "version": "2026.2",
+        "tag": "application2",
+        "fileName": "MCreator.2026.2.Windows.64bit.exe",
+        "size": 420464864,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/MCreator.2026.2.Windows.64bit.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "2026.2",
+          "tag": "application2",
+          "fileName": "MCreator.2026.2.Windows.64bit.exe",
+          "size": 420464864,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/MCreator.2026.2.Windows.64bit.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        }
+      ]
+    },
+    {
+      "name": "MCTier",
+      "type": "port",
+      "company": "null",
+      "latest": {
+        "version": "1.3.7",
+        "tag": "application2",
+        "fileName": "MCTier.exe",
+        "size": 53694464,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/MCTier.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "1.3.7",
+          "tag": "application2",
+          "fileName": "MCTier.exe",
+          "size": 53694464,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/MCTier.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        }
+      ]
+    },
+    {
+      "name": "resource_hacker",
+      "type": "port",
       "company": "Angus",
       "latest": {
         "version": "5.67",
@@ -282,6 +374,29 @@
           "size": 5436416,
           "url": "https://github.com/zssx-2026/applications/releases/download/application1/ResourceHacker.exe",
           "publishedAt": "2026-09-11T23:18:09Z"
+        }
+      ]
+    },
+    {
+      "name": "Steam",
+      "type": "setup",
+      "company": "Steam",
+      "latest": {
+        "version": "3.1.0",
+        "tag": "application2",
+        "fileName": "Steam._v3.1.0_win_x64.exe",
+        "size": 96754104,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/Steam._v3.1.0_win_x64.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "3.1.0",
+          "tag": "application2",
+          "fileName": "Steam._v3.1.0_win_x64.exe",
+          "size": 96754104,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/Steam._v3.1.0_win_x64.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
         }
       ]
     },
@@ -309,15 +424,38 @@
       ]
     },
     {
-      "name": "VMWare_WP",
+      "name": "VLC",
       "type": "setup",
-      "company": "Boardcom",
+      "company": "VLC",
       "latest": {
-        "version": "26H2",
+        "version": "3.0.23",
         "tag": "application2",
-        "fileName": "VMware.Workstation.Pro.26H1_Setup.exe",
-        "size": 289515688,
-        "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware.Workstation.Pro.26H1_Setup.exe",
+        "fileName": "vlc-3.0.23-win64.exe",
+        "size": 45948080,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/vlc-3.0.23-win64.exe",
+        "publishedAt": "2026-09-12T12:35:06Z"
+      },
+      "versions": [
+        {
+          "version": "3.0.23",
+          "tag": "application2",
+          "fileName": "vlc-3.0.23-win64.exe",
+          "size": 45948080,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/vlc-3.0.23-win64.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        }
+      ]
+    },
+    {
+      "name": "VMware",
+      "type": "setup",
+      "company": "Boardcom.Inc",
+      "latest": {
+        "version": "26H1u1",
+        "tag": "application2",
+        "fileName": "VMware-Workstation-Full-26H1u1-25688693.exe",
+        "size": 280609368,
+        "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware-Workstation-Full-26H1u1-25688693.exe",
         "publishedAt": "2026-09-12T12:35:06Z"
       },
       "versions": [
@@ -330,11 +468,27 @@
           "publishedAt": "2026-09-11T23:18:09Z"
         },
         {
-          "version": "26H2",
+          "version": "25H2u1",
+          "tag": "application2",
+          "fileName": "VMware-Workstation-Full-25H2u1-25219725.exe",
+          "size": 291831176,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware-Workstation-Full-25H2u1-25219725.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        },
+        {
+          "version": "26H1",
           "tag": "application2",
           "fileName": "VMware.Workstation.Pro.26H1_Setup.exe",
           "size": 289515688,
           "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware.Workstation.Pro.26H1_Setup.exe",
+          "publishedAt": "2026-09-12T12:35:06Z"
+        },
+        {
+          "version": "26H1u1",
+          "tag": "application2",
+          "fileName": "VMware-Workstation-Full-26H1u1-25688693.exe",
+          "size": 280609368,
+          "url": "https://github.com/zssx-2026/applications/releases/download/application2/VMware-Workstation-Full-26H1u1-25688693.exe",
           "publishedAt": "2026-09-12T12:35:06Z"
         }
       ]

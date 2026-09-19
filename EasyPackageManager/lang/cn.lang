@@ -254,3 +254,6 @@ loginAlready="已登录"
 logoutOK="已退出登录"
 logoutNone="尚未登录"
 
+helpInstallPath="便携版安装路径（跟在命令后）"
+
+pkgNotFoundHint="你是不是想装: {names} ?"
